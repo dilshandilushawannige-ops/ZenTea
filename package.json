@@ -1,0 +1,9 @@
+﻿{
+    "dependencies":  {
+                         "@gsap/react":  "^2.1.2",
+                         "framer-motion":  "^12.23.13",
+                         "gsap":  "^3.13.0",
+                         "chart.js":  "^4.4.4",
+                         "react-chartjs-2":  "^5.2.0"
+                     }
+}
