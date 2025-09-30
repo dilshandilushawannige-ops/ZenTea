@@ -1,11 +1,12 @@
-import gsap from 'gsap';
+﻿import gsap from 'gsap';
 import { ScrollTrigger, SplitText} from "gsap/all";
 import React from "react";
 import Navbar from "../components/Navbar";
 import Hero from "../components/Hero";
 import ReserveTea from "../components/ReserveTea";
 import StatsSection from "../components/StatsSection";
-import FeatureSteps from "../components/FeatureSteps";
+import HerbalWonderSection from '../components/HerbalWonderSection';
+
 import Footer from "../components/Footer";
 
 
@@ -13,7 +14,7 @@ const features = [
     {
         step: "Step 1",
         title: "Choose Your Tea",
-        content: "Indulge in a dessert-inspired favorite. This blend features a robust black tea base with real cacao bits for a rich, chocolatey flavor that's perfectly sweet and satisfying—like your favorite treat in a cup.",
+        content: "Indulge in a dessert-inspired favorite. This blend features a robust black tea base with real cacao bits for a rich, chocolatey flavor that's perfectly sweet and satisfyingâ€”like your favorite treat in a cup.",
         image: "/images/Tea1.png",
     },
     {
@@ -39,10 +40,11 @@ const Home = () => {
       <Hero />
       <ReserveTea />
       <StatsSection />
-      <FeatureSteps features={features} imageHeight="h-[400px] w-[450px]" />
+      <HerbalWonderSection />
       <Footer />
     </div>
   );
 };
 
 export default Home;
+

@@ -18,6 +18,8 @@ export default function AdminDashboard() {
   const menu = [
     { to: '/admin', label: 'Dashboard' },
     { to: '/admin/salary', label: 'Salary Management' },
+    { to: '/admin/inventory', label: 'Inventory Management' },
+    { to: '/admin/order', label: 'Order Management' },
   ];
 
   const { token } = useAuth();

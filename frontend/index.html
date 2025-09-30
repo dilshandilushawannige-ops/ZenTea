@@ -2,11 +2,57 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-     <link rel="icon" type="image/svg+xml" href="/images/logo.png" />
+    <link rel="icon" type="image/png" href="/images/logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Tea Factory Management</title>
+    <meta name="theme-color" content="#065f46" />
+    <meta name="description" content="Tea Factory Management System" />
+
+    <!-- Performance: preconnect to fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <!-- Fonts: Inter (body), Poppins (headings), Noto Sans + Sinhala/Tamil fallbacks -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@500;600;700&family=Noto+Sans:wght@400;600&family=Noto+Sans+Sinhala:wght@400;600&family=Noto+Sans+Tamil:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Optional: Preload slideshow images for smoother first render -->
+    <link rel="preload" as="image" href="/images/Tea1.png" />
+    <link rel="preload" as="image" href="/images/Tea2.png" />
+    <link rel="preload" as="image" href="/images/Tea3.png" />
+
+    <!-- Global font rules -->
+    <style>
+      /* Body: Inter with sensible fallbacks (+ Noto for wide coverage) */
+      html, body {
+        font-family:
+          Inter,
+          system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+          "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+      }
+      /* Headings: Poppins for a modern, friendly look */
+      h1, h2, h3, h4, h5, h6,
+      .font-heading {
+        font-family:
+          Poppins,
+          Inter,
+          system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+          "Noto Sans", sans-serif;
+      }
+      /* Language-aware fallbacks for Sinhala/Tamil content */
+      :lang(si), .lang-si {
+        font-family: "Noto Sans Sinhala", Inter, "Noto Sans", system-ui, sans-serif;
+      }
+      :lang(ta), .lang-ta {
+        font-family: "Noto Sans Tamil", Inter, "Noto Sans", system-ui, sans-serif;
+      }
+    </style>
   </head>
+
   <body class="bg-gray-50">
+    <noscript>You need to enable JavaScript to run this app.</noscript>
     <div id="root"></div>
     <script type="module" src="/src/index.jsx"></script>
   </body>

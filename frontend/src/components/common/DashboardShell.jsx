@@ -108,7 +108,22 @@ export default function DashboardShell({ children, menu, title = 'Dashboard', su
               {initials}
             </div>
             <div className="text-sm">
-              <p className="font-semibold text-slate-800">{user?.name}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  const userRole = user?.role?.toString().toLowerCase();
+                  if (userRole === 'collector') {
+                    nav('/collector/profile');
+                  } else if (userRole === 'supplier') {
+                    nav('/supplier/profile');
+                  } else {
+                    nav('/employee/profile');
+                  }
+                }}
+                className="font-semibold text-slate-800 hover:text-emerald-600 transition-colors text-left"
+              >
+                {user?.name}
+              </button>
               <p className="text-slate-500 text-xs">
                 {user?.uniqueId} · {user?.role}
               </p>

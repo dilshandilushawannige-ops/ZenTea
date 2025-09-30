@@ -2,6 +2,7 @@
  {
 	id: "Home",
 	title: "Home",
+	path: "/"
  },
  {
 	id: "Ourstory",
@@ -11,10 +12,12 @@
  {
 	id: "Shop",
 	title: "Shop",
+	path: "/shop"
  },
  {
 	id: "Blog",
 	title: "blog",
+	path: "/blog"
  },
  {
   id: "contact",

@@ -2,7 +2,7 @@ import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { SplitText } from "gsap/all";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { useRef } from "react";
+import { useRef, useEffect } from "react";
 import { useMediaQuery } from "react-responsive";
 
 // Register ScrollTrigger plugin
@@ -56,6 +56,15 @@ const Hero = () => {
 
     }, []);
 
+    useEffect(() => {
+        gsap.from('.hero-text', {
+            y: 100,
+            opacity: 0,
+            duration: 1,
+            stagger: 0.3
+        });
+    }, []);
+
     return (
         <>
             <section ref={heroRef} id="hero" className="relative min-h-screen w-full overflow-hidden">
@@ -73,11 +82,11 @@ const Hero = () => {
 
                 
                 <div className="relative z-10 flex flex-col items-center justify-center h-full text-white">
-                    <h1 ref={titleRef} className="title">ZenTea</h1>
+                    <h1 ref={titleRef} className="title hero-text">ZenTea</h1>
 
                     <div className="content text-center mt-6">
-                        <p className="subtitle text-lg md:text-2xl">Finest Ceylon Tea</p>
-                        <p className="subtitle mt-4 max-w-xl">
+                        <p className="subtitle hero-text text-lg md:text-2xl">Finest Ceylon Tea</p>
+                        <p className="subtitle mt-4 max-w-xl hero-text">
                            Summer is one of our favourite seasons and we are bringing you a collection
                             of the finest Ceylon Tea to keep you cool and refreshed all Summer long!.
                         </p>

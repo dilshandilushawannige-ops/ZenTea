@@ -18,11 +18,7 @@ export default function ProtectedRoute({ allow }) {
   if (allow) {
     const normalizedRole = user?.role ? user.role.toString().trim().toLowerCase() : "";
     const normalizedAllow = allow.map((r) => r.toString().trim().toLowerCase());
-    const isAllowed = normalizedAllow.some((allowedRole) =>
-      normalizedRole === allowedRole ||
-      normalizedRole.includes(allowedRole) ||
-      allowedRole.includes(normalizedRole)
-    );
+    const isAllowed = normalizedAllow.includes(normalizedRole);
     if (!isAllowed) return <Navigate to="/" replace />;
   }
 

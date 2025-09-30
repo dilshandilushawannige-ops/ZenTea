@@ -1,8 +1,29 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
+const defaultFeatures = [
+  {
+    step: "Step 1",
+    title: "Browse Our Collection",
+    content: "Explore our carefully curated selection of premium teas from around the world. Each tea is sourced from the finest gardens and crafted with care.",
+    image: "/images/Tea1.png",
+  },
+  {
+    step: "Step 2",
+    title: "Find Your Perfect Match",
+    content: "Use our filters to discover teas that match your taste preferences. From bold black teas to delicate white teas, find your perfect cup.",
+    image: "/images/Tea2.png",
+  },
+  {
+    step: "Step 3",
+    title: "Enjoy Premium Quality",
+    content: "Experience the difference that quality makes. Our teas are carefully processed and packaged to preserve their natural flavors and aromas.",
+    image: "/images/Tea3.png",
+  },
+];
+
 export default function FeatureSteps({
-  features,
+  features = defaultFeatures,
   className = "",
   title = "Flirt with New Tea Recipes", // Updated main heading
   autoPlayInterval = 3000,
@@ -105,7 +126,6 @@ export default function FeatureSteps({
                         alt={feature.step}
                         className="w-full h-full object-cover"
                       />
-                      <div className="absolute bottom-0 left-0 right-0 h-2/3 bg-gradient-to-t from-black via-black/50 to-transparent" />
                     </motion.div>
                   )
               )}

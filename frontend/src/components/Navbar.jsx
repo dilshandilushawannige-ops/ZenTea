@@ -1,8 +1,12 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { Link, useLocation } from "react-router-dom";
+import { User, ShoppingCart } from "lucide-react";
 import { navLinks } from "../../constants/index.js";
+import { useAuth } from "../context/AuthContext";
+import { useCart } from "../context/CartContext";
+import CartSidebar from "./CartSidebar";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -10,6 +14,8 @@ const Navbar = () => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const location = useLocation();
+  const { user } = useAuth();
+  const { getTotalItems, toggleCart } = useCart();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -35,6 +41,8 @@ const Navbar = () => {
   const toggleMenu = () => setMenuOpen((prev) => !prev);
   const closeMenu = () => setMenuOpen(false);
 
+  const isCustomer = !!(user && user.role?.toLowerCase().includes('customer'));
+
   return (
     <nav
       className={`fixed top-0 left-0 z-50 w-full transition-all duration-300 ${
@@ -43,8 +51,7 @@ const Navbar = () => {
     >
       <div className="relative mx-auto flex w-full max-w-6xl items-center px-5 sm:px-7 lg:px-9 py-4">
         <Link to="/" className="flex items-center gap-2 text-white">
-          <img src="/images/logo.png" alt="logo" className="h-11 w-auto" />
-          <span className="text-[#7ed957] font-bold text-lg">ZenTea</span>
+          <img src="/images/logof.png" alt="logo" className="h-12 w-auto" />
         </Link>
 
         <div className="ml-auto hidden md:flex items-center gap-12">
@@ -69,19 +76,25 @@ const Navbar = () => {
               </li>
             ))}
           </ul>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <Link
-              to="/login"
-              className="rounded-xl border border-[#7ed957] px-5 py-2 text-sm font-semibold text-[#7ed957] transition-all duration-200 hover:bg-[#7ed957] hover:text-black"
+              to={isCustomer ? "/account" : "/login"}
+              className="flex items-center gap-2 rounded-full border border-white/70 px-5 py-2 text-sm font-semibold text-white transition-colors duration-200 hover:bg-white hover:text-black"
             >
-              Login
+              <User className="h-4 w-4" strokeWidth={1.8} />
+              <span>Account</span>
             </Link>
-            <Link
-              to="/signup"
-              className="rounded-xl bg-[#7ed957] px-5 py-2 text-sm font-semibold text-black transition-all duration-200 hover:bg-[#5ab143]"
+            <button
+              onClick={toggleCart}
+              className="relative flex h-10 w-10 items-center justify-center rounded-full bg-white text-black transition-colors duration-200 hover:bg-[#e7e7e7]"
             >
-              Sign Up
-            </Link>
+              <ShoppingCart className="h-5 w-5" strokeWidth={1.8} />
+              {getTotalItems() > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                  {getTotalItems()}
+                </span>
+              )}
+            </button>
           </div>
         </div>
 
@@ -125,25 +138,34 @@ const Navbar = () => {
                 </li>
               ))}
             </ul>
-            <div className="mt-4 flex flex-col gap-3">
+            <div className="mt-4 flex flex-wrap items-center gap-3">
               <Link
-                to="/login"
+                to={isCustomer ? "/account" : "/login"}
                 onClick={closeMenu}
-                className="block rounded-xl border border-[#7ed957] px-4 py-2 text-center font-semibold text-[#7ed957] transition-all duration-200 hover:bg-[#7ed957] hover:text-black"
+                className="flex flex-1 min-w-[150px] items-center justify-center gap-2 rounded-full border border-white/70 px-4 py-2 text-center font-semibold text-white transition-colors duration-200 hover:bg-white hover:text-black"
               >
-                Login
+                <User className="h-4 w-4" strokeWidth={1.8} />
+                <span>Account</span>
               </Link>
-              <Link
-                to="/signup"
-                onClick={closeMenu}
-                className="block rounded-xl bg-[#7ed957] px-4 py-2 text-center font-semibold text-black transition-all duration-200 hover:bg-[#5ab143]"
+              <button
+                onClick={() => {
+                  closeMenu();
+                  toggleCart();
+                }}
+                className="relative flex h-11 w-11 items-center justify-center rounded-full bg-white text-black transition-colors duration-200 hover:bg-[#e7e7e7]"
               >
-                Sign Up
-              </Link>
+                <ShoppingCart className="h-5 w-5" strokeWidth={1.8} />
+                {getTotalItems() > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                    {getTotalItems()}
+                  </span>
+                )}
+              </button>
             </div>
           </div>
         </div>
       </div>
+      <CartSidebar />
     </nav>
   );
 };
