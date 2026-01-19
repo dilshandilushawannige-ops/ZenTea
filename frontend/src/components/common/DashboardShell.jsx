@@ -70,13 +70,13 @@ export default function DashboardShell({ children, menu, title = 'Dashboard', su
   return (
     <div className="flex min-h-screen bg-slate-50 text-slate-800">
       <aside className="hidden md:flex md:w-64 lg:w-72 flex-col border-r border-slate-200 bg-white/80 backdrop-blur">
-        <div className="flex items-center gap-3 px-6 py-5 border-b border-slate-200">
-          <div className="h-10 w-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xl font-semibold">
-            ZT
-          </div>
-          <div>
-            <p className="text-sm font-medium text-slate-500">ZenTea Seller Panel</p>
-            <p className="text-lg font-semibold text-slate-800">Dashboard</p>
+        <div className="flex items-center justify-center px-6 py-6 border-b border-slate-200">
+          <div className="flex items-center justify-center">
+            <img 
+              src="/images/logof.png" 
+              alt="ZenTea Logo" 
+              className="h-14 w-auto object-contain"
+            />
           </div>
         </div>
         <nav className="flex-1 px-3 py-4 space-y-1">

@@ -6,6 +6,7 @@ import CartProvider from './context/CartContext.jsx';
 import ProtectedRoute from './components/common/ProtectedRoute.jsx';
 import HomePage from './pages/HomePage.jsx';
 import ViewCart from './pages/ViewCart.jsx';
+import Checkout from './pages/Checkout.jsx';
 import AccountDetails from './pages/AccountDetails.jsx';
 import LoginPage from './pages/auth/LoginPage.jsx';
 import SignupPage from './pages/auth/SignupPage.jsx';
@@ -26,6 +27,9 @@ import InventoryRestock from './pages/admin/InventoryRestock.jsx';
 import InventoryStock from './pages/admin/InventoryStock.jsx';
 import CusOrderManagement from './pages/admin/CusOrderManagement.jsx';
 import Orders from './pages/admin/Orders.jsx';
+import AdminPanelDashboard from './pages/admin/AdminPanelDashboard.jsx';
+import CropsManagement from './pages/admin/CropsManagement.jsx';
+import PlotsManagement from './pages/admin/PlotsManagement.jsx';
 import ContactUs from './pages/contactUS/ContactUs.jsx';
 import Ourstory from './pages/OurStory/Ourstory.jsx';
 import Shop from './pages/Shop.jsx';
@@ -46,6 +50,7 @@ export default function App() {
         <Route path="/Ourstory" element={<Ourstory />} />
         <Route path="/shop" element={<Shop/>} />
         <Route path="/cart" element={<ViewCart />} />
+        <Route path="/checkout" element={<Checkout />} />
         <Route path="/account" element={<AccountDetails />} />
         <Route path="/blog" element={<Blog />} />
         <Route path="/my-orders" element={<MyOrders />} />
@@ -65,6 +70,9 @@ export default function App() {
           <Route path="/admin/order" element={<OrderManagement />} />
           <Route path="/admin/order-overview" element={<CusOrderManagement />} />
           <Route path="/admin/orders" element={<Orders />} />
+          <Route path="/admin/panel" element={<AdminPanelDashboard />} />
+          <Route path="/admin/panel/crops" element={<CropsManagement />} />
+          <Route path="/admin/panel/plots" element={<PlotsManagement />} />
         </Route>
 
         {/* Collector */}

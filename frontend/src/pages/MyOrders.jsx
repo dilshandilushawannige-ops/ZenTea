@@ -1,958 +1,865 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
-import {
-  ChevronRight,
-  Calendar,
-  Package,
-  Clock,
-  CheckCircle,
-  XCircle,
-  Search,
-  Download,
-  X as XIcon,
-} from 'lucide-react';
-import Swal from 'sweetalert2';
-import 'sweetalert2/dist/sweetalert2.min.css';
-import Header from '../components/Navbar';
+import React, { useEffect, useState, useMemo } from 'react';
+import { Calendar, Package, Clock, CheckCircle, XCircle, Truck, Download, FileText } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
+import { ordersApi } from '../api/ordersApi';
+import { useAuth } from '../context/AuthContext';
 
-// <-- FIX: use import.meta.env (Vite). fallback to CRA env or localhost
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const formatPrice = (value) => {
+  const numeric = Number(value) || 0;
+  return `LKR ${numeric.toFixed(2)}`;
+};
 
-const MyOrdersPage = () => {
-  const [activeFilter, setActiveFilter] = useState('All');
-  const [dateRange, setDateRange] = useState('all'); // 'all' or number of days as string
-  const [searchTerm, setSearchTerm] = useState('');
+const MyOrders = () => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [deletingId, setDeletingId] = useState(null);
+  const [error, setError] = useState('');
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [timeFilter, setTimeFilter] = useState('All time');
+  const [generatingReport, setGeneratingReport] = useState(false);
 
-  // Modal / update state
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [modalData, setModalData] = useState(null); // holds editable order object
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [updateError, setUpdateError] = useState(null);
+  const { user } = useAuth();
 
-  // Inline status edit state
-  const [editingStatusId, setEditingStatusId] = useState(null);
-  const [statusUpdatingId, setStatusUpdatingId] = useState(null);
+  const statusOptions = [
+    { value: 'All', label: 'All' },
+    { value: 'Processing', label: 'Processing' },
+    { value: 'Shipped', label: 'Shipped' },
+    { value: 'Delivered', label: 'Delivered' },
+    { value: 'Cancelled', label: 'Cancelled' }
+  ];
 
-  const isMountedRef = useRef(true);
+  const timeOptions = [
+    { value: 'All time', label: 'All time' },
+    { value: 'Last 7 days', label: 'Last 7 days' },
+    { value: 'Last 30 days', label: 'Last 30 days' },
+    { value: 'Last 3 months', label: 'Last 3 months' },
+    { value: 'Last year', label: 'Last year' }
+  ];
 
-  // Keep filter options aligned with backend enum: Processing, Shipped, Delivered, Cancelled
-  const filterOptions = ['All', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
-
-  // Map status to icon
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case 'Processing':
-        return <Clock className="w-4 h-4" />;
-      case 'Shipped':
-        return <Package className="w-4 h-4" />;
-      case 'Delivered':
-        return <CheckCircle className="w-4 h-4" />;
-      case 'Cancelled':
-        return <XCircle className="w-4 h-4" />;
-      default:
-        return <Package className="w-4 h-4" />;
-    }
-  };
-
-  const getStatusStyle = (status) => {
-    switch (status) {
-      case 'Processing':
-        return 'bg-gradient-to-r from-emerald-100 to-teal-100 text-emerald-800 border-emerald-200';
-      case 'Shipped':
-        return 'bg-gradient-to-r from-blue-100 to-cyan-100 text-blue-800 border-blue-200';
-      case 'Delivered':
-        return 'bg-gradient-to-r from-green-100 to-emerald-100 text-green-800 border-green-200';
-      case 'Cancelled':
-        return 'bg-gradient-to-r from-red-100 to-pink-100 text-red-800 border-red-200';
-      default:
-        return 'bg-gradient-to-r from-gray-100 to-slate-100 text-gray-800 border-gray-200';
-    }
-  };
-
-  // Normalize returned sales object to the same shape stored in orders state
-  const normalizeOrderFromResponse = (o) => ({
-    id: o._id || o.id || '',
-    customerName: o.customerName || '',
-    customerEmail: o.customerEmail || '',
-    phoneNumber: o.phoneNumber || '',
-    address: o.address || '',
-    quantity: o.quantity !== undefined ? o.quantity : '',
-    description: o.description || '',
-    status: o.status || 'Processing',
-    createdAt: o.createdAt || o.date || null,
-    price: o.price || '',
-    rating: o.rating || null,
-    estimatedDelivery: o.estimatedDelivery || null,
-    deliveredDate: o.deliveredDate || null,
-    cancelReason: o.cancelReason || null,
-  });
-
-  // --- Fetch orders (reusable) ---
-  const fetchOrders = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const res = await fetch(`${API_BASE}/api/sales`);
-
-      if (!res.ok) {
-        const text = await res.text();
-        const preview = typeof text === 'string' ? text.slice(0, 1000) : text;
-        throw new Error(`${res.status} ${res.statusText} — Response body preview: ${preview}`);
-      }
-
-      const contentType = (res.headers.get('content-type') || '').toLowerCase();
-
-      if (!contentType.includes('application/json')) {
-        const text = await res.text();
-        const preview = typeof text === 'string' ? text.slice(0, 1000) : text;
-        throw new Error(
-          `Expected JSON but received content-type: ${contentType}. Response preview: ${preview}`
-        );
-      }
-
-      const data = await res.json();
-      const fetched = Array.isArray(data.sales) ? data.sales : [];
-
-      const normalized = fetched.map((o) => normalizeOrderFromResponse(o));
-
-      if (isMountedRef.current) {
-        setOrders(
-          normalized.sort((a, b) => {
-            if (a.createdAt && b.createdAt) return new Date(b.createdAt) - new Date(a.createdAt);
-            return 0;
-          })
-        );
-      }
-    } catch (err) {
-      if (err.name !== 'AbortError' && isMountedRef.current) {
-        console.error('Failed to load orders:', err);
-        setError(err.message || 'Failed to load orders');
-      }
-    } finally {
-      if (isMountedRef.current) setLoading(false);
-    }
+  useEffect(() => {
+    fetchOrders();
   }, []);
 
-  // --- Mount: fetch orders and manage mounted ref ---
-  useEffect(() => {
-    isMountedRef.current = true;
-    fetchOrders();
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, [fetchOrders]);
-
-  // --- Delete order ---
-  const handleDelete = async (orderId) => {
-    if (!orderId) return;
-
-    const confirmResult = await Swal.fire({
-      title: 'Delete order?',
-      text: 'Are you sure you want to delete this order? This cannot be undone.',
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'Yes, delete it',
-      cancelButtonText: 'Cancel',
-      reverseButtons: true,
-    });
-
-    if (!confirmResult.isConfirmed) return;
-
-    setDeletingId(orderId);
+  const fetchOrders = async () => {
+    if (!user) {
+      setError('Please login to view your orders');
+      setLoading(false);
+      return;
+    }
 
     try {
-      const res = await fetch(`${API_BASE}/api/sales/delete/${orderId}`, {
-        method: 'DELETE',
-      });
-
-      const contentType = (res.headers.get('content-type') || '').toLowerCase();
-      let body;
-      if (contentType.includes('application/json')) {
-        body = await res.json();
-      } else {
-        body = await res.text();
-      }
-
-      if (!res.ok) {
-        const message = (body && body.message) || body || `${res.status} ${res.statusText}`;
-        throw new Error(message);
-      }
-
-      // remove locally (immediate feedback). We do not force a full refetch here to avoid extra round trip.
-      setOrders((prev) => prev.filter((order) => order.id !== orderId));
-      await Swal.fire({
-        icon: 'success',
-        title: (body && body.message) || 'Order deleted successfully!',
-        timer: 1800,
-        showConfirmButton: false,
-      });
+      setLoading(true);
+      const response = await ordersApi.getUserOrders();
+      setOrders(response.orders || []);
+      setError('');
     } catch (err) {
-      console.error('handleDelete error:', err);
-      await Swal.fire({
-        icon: 'error',
-        title: 'Delete failed',
-        text: err.message || 'Failed to delete order',
-      });
+      console.error('Failed to fetch orders:', err);
+      setError(err.response?.data?.message || 'Failed to load orders');
     } finally {
-      setDeletingId(null);
+      setLoading(false);
     }
   };
 
-  // --- Filtering & searching helpers ---
-  const withinDateRange = (order) => {
-    if (!order.createdAt) return true;
-    if (dateRange === 'all') return true;
-    const days = parseInt(dateRange, 10);
-    if (Number.isNaN(days)) return true;
-    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-    return new Date(order.createdAt).getTime() >= cutoff;
+  // Filter orders based on status and time (no search)
+  const filteredOrders = useMemo(() => {
+    let filtered = [...orders];
+
+    // Status filter
+    if (statusFilter !== 'All') {
+      filtered = filtered.filter(order => order.status === statusFilter);
+    }
+
+    // Time filter
+    if (timeFilter !== 'All time') {
+      const now = new Date();
+      const filterDate = new Date();
+      
+      switch (timeFilter) {
+        case 'Last 7 days':
+          filterDate.setDate(now.getDate() - 7);
+          break;
+        case 'Last 30 days':
+          filterDate.setDate(now.getDate() - 30);
+          break;
+        case 'Last 3 months':
+          filterDate.setMonth(now.getMonth() - 3);
+          break;
+        case 'Last year':
+          filterDate.setFullYear(now.getFullYear() - 1);
+          break;
+        default:
+          filterDate.setFullYear(1970);
+      }
+      
+      filtered = filtered.filter(order => 
+        new Date(order.createdAt) >= filterDate
+      );
+    }
+
+    return filtered;
+  }, [orders, statusFilter, timeFilter]);
+
+  const generateOrdersReport = async () => {
+    setGeneratingReport(true);
+    
+    try {
+      const doc = new jsPDF();
+      
+      // Add title
+      doc.setFontSize(20);
+      doc.text('Orders Summary Report', 20, 20);
+      
+      // Add user info
+      doc.setFontSize(12);
+      doc.text(`Customer: ${user.name || 'N/A'}`, 20, 35);
+      doc.text(`Email: ${user.email || 'N/A'}`, 20, 45);
+      doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 20, 55);
+      
+      // Use filtered orders for the report
+      const ordersToReport = filteredOrders.length > 0 ? filteredOrders : orders;
+      
+      // Prepare table data
+      const tableData = ordersToReport.map(order => [
+        order._id?.slice(-8) || 'N/A',
+        new Date(order.createdAt).toLocaleDateString(),
+        order.status || 'N/A',
+        order.items?.length || 0,
+        formatPrice(order.total) || 'N/A'
+      ]);
+      
+      // Add table using autoTable function
+      autoTable(doc, {
+        head: [['Order ID', 'Date', 'Status', 'Items', 'Total']],
+        body: tableData,
+        startY: 70,
+        theme: 'striped',
+        headStyles: { fillColor: [34, 197, 94] }, // Green color
+        styles: { fontSize: 10 }
+      });
+      
+      // Add summary statistics
+      const totalOrders = ordersToReport.length;
+      const totalAmount = ordersToReport.reduce((sum, order) => sum + (Number(order.total) || 0), 0);
+      const completedOrders = ordersToReport.filter(order => order.status === 'Delivered').length;
+      
+      const finalY = doc.lastAutoTable ? doc.lastAutoTable.finalY : 70;
+      
+      doc.setFontSize(12);
+      doc.text('Summary Statistics:', 20, finalY + 20);
+      doc.text(`Total Orders: ${totalOrders}`, 20, finalY + 35);
+      doc.text(`Completed Orders: ${completedOrders}`, 20, finalY + 45);
+      doc.text(`Total Amount: ${formatPrice(totalAmount)}`, 20, finalY + 55);
+      
+      // Add filter information if applied
+      if (statusFilter !== 'All' || timeFilter !== 'All time') {
+        doc.text('Applied Filters:', 20, finalY + 70);
+        if (statusFilter !== 'All') {
+          doc.text(`- Status: ${statusFilter}`, 25, finalY + 80);
+        }
+        if (timeFilter !== 'All time') {
+          doc.text(`- Time Period: ${timeFilter}`, 25, finalY + 90);
+        }
+      }
+      
+      // Save the PDF
+      doc.save(`orders-report-${new Date().toISOString().split('T')[0]}.pdf`);
+      
+    } catch (error) {
+      console.error('Error generating report:', error);
+      alert('Failed to generate report. Please try again.');
+    } finally {
+      setGeneratingReport(false);
+    }
   };
 
-  const matchesSearchTerm = (order) => {
-    if (!searchTerm) return true;
-    const q = searchTerm.toLowerCase();
+  if (!user) {
     return (
-      (order.description && order.description.toLowerCase().includes(q)) ||
-      (order.customerName && order.customerName.toLowerCase().includes(q)) ||
-      (order.customerEmail && order.customerEmail.toLowerCase().includes(q)) ||
-      (order.phoneNumber && order.phoneNumber.toLowerCase().includes(q)) ||
-      (order.address && order.address.toLowerCase().includes(q)) ||
-      (order.id && order.id.toLowerCase().includes(q))
-    );
-  };
-
-  const filteredOrders = orders.filter((order) => {
-    const matchesFilter = activeFilter === 'All' || order.status === activeFilter;
-    return matchesFilter && withinDateRange(order) && matchesSearchTerm(order);
-  });
-
-  // --- Export CSV ---
-  const exportOrders = () => {
-    if (!orders.length) return;
-    const headers = [
-      'Order ID',
-      'Customer Name',
-      'Customer Email',
-      'Phone Number',
-      'Address',
-      'Quantity',
-      'Description',
-      'Status',
-      'Created At',
-      'Price',
-    ];
-    const rows = orders.map((o) => [
-      o.id,
-      o.customerName,
-      o.customerEmail,
-      o.phoneNumber,
-      o.address,
-      o.quantity,
-      (o.description || '').replace(/"/g, '""'),
-      o.status,
-      o.createdAt ? new Date(o.createdAt).toISOString() : '',
-      o.price || '',
-    ]);
-    const csv = [headers, ...rows]
-      .map((r) =>
-        r
-          .map((cell) => {
-            const val = cell === null || cell === undefined ? '' : String(cell);
-            return `"${val.replace(/"/g, '""')}"`;
-          })
-          .join(',')
-      )
-      .join('\n');
-
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `orders_export_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  // --- Modal / Update logic ---
-
-  // open modal and prefill modalData
-  const openUpdateModal = (order) => {
-    if (!order) return;
-    // Only allow opening the modal for Processing orders
-    if (order.status !== 'Processing') {
-      Swal.fire({
-        icon: 'info',
-        title: 'Not editable',
-        text: 'Only orders with status "Processing" can be updated.',
-      });
-      return;
-    }
-    // clone to avoid mutating original object directly
-    setModalData({
-      id: order.id,
-      customerName: order.customerName || '',
-      customerEmail: order.customerEmail || '',
-      phoneNumber: order.phoneNumber || '',
-      address: order.address || '',
-      quantity: order.quantity ?? '',
-      description: order.description || '',
-      status: order.status || 'Processing',
-    });
-    setUpdateError(null);
-    setIsModalOpen(true);
-  };
-
-  const closeUpdateModal = () => {
-    setIsModalOpen(false);
-    setModalData(null);
-    setIsUpdating(false);
-    setUpdateError(null);
-  };
-
-  const handleModalChange = (field, value) => {
-    setModalData((prev) => (prev ? { ...prev, [field]: value } : prev));
-  };
-
-  // Submit update to backend (PATCH /api/sales/update/:id)
-  const submitUpdate = async (e) => {
-    e.preventDefault();
-    if (!modalData || !modalData.id) return;
-
-    // simple client side validation
-    if (
-      !modalData.customerName ||
-      !modalData.customerEmail ||
-      !modalData.phoneNumber ||
-      !modalData.address ||
-      modalData.quantity === '' ||
-      modalData.quantity === null ||
-      modalData.quantity === undefined ||
-      !modalData.description
-    ) {
-      setUpdateError('All fields are required.');
-      return;
-    }
-
-    setIsUpdating(true);
-    setUpdateError(null);
-
-    try {
-      const res = await fetch(`${API_BASE}/api/sales/update/${modalData.id}`, {
-        method: 'PATCH', // backend supports PATCH (updatesales)
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          customerName: modalData.customerName,
-          customerEmail: modalData.customerEmail,
-          phoneNumber: modalData.phoneNumber,
-          address: modalData.address,
-          quantity: modalData.quantity,
-          description: modalData.description,
-          status: modalData.status,
-        }),
-      });
-
-      const contentType = (res.headers.get('content-type') || '').toLowerCase();
-      let body;
-      if (contentType.includes('application/json')) {
-        body = await res.json();
-      } else {
-        body = await res.text();
-      }
-
-      if (!res.ok) {
-        const message = (body && body.message) || body || `${res.status} ${res.statusText}`;
-        throw new Error(message);
-      }
-
-      // backend returns { sales: updated } in the controller; handle both possibilities
-      const updatedRaw = (body && body.sales) ? body.sales : body;
-      const updated = normalizeOrderFromResponse(updatedRaw);
-
-      // update local orders state (replace the matching id)
-      setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
-
-      await Swal.fire({
-        icon: 'success',
-        title: 'Order updated',
-        text: 'Order updated successfully!',
-        timer: 1500,
-        showConfirmButton: false,
-      });
-
-      closeUpdateModal();
-
-      // --- NEW: refresh orders from server to ensure latest data ---
-      await fetchOrders();
-    } catch (err) {
-      console.error('submitUpdate error:', err);
-      setUpdateError(err.message || 'Failed to update order');
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  // --- Inline status update ---
-  // Tries /api/sales/update-status/:id first, falls back to /api/sales/update/:id
-  const handleStatusChange = async (orderId, newStatus) => {
-    if (!orderId || !newStatus) return;
-
-    // Ensure the previous status is Processing before allowing change
-    const prevOrders = orders.slice();
-    const prevOrder = prevOrders.find((o) => o.id === orderId);
-    if (!prevOrder) return;
-    if (prevOrder.status !== 'Processing') {
-      await Swal.fire({
-        icon: 'info',
-        title: 'Cannot change status',
-        text: 'Status can only be changed for orders currently in "Processing" state.',
-      });
-      setEditingStatusId(null);
-      return;
-    }
-
-    setStatusUpdatingId(orderId);
-
-    // Optimistic UI update: store previous orders snapshot to rollback if needed
-    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o)));
-    setEditingStatusId(null);
-
-    try {
-      // Try dedicated route first
-      let res = await fetch(`${API_BASE}/api/sales/update-status/${orderId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
-      });
-
-      // If server responds not ok, fallback to general update endpoint
-      if (!res.ok) {
-        await res.text().catch(() => '');
-        res = await fetch(`${API_BASE}/api/sales/update/${orderId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: newStatus }),
-        });
-      }
-
-      const contentType = (res.headers.get('content-type') || '').toLowerCase();
-      let body;
-      if (contentType.includes('application/json')) {
-        body = await res.json();
-      } else {
-        body = await res.text();
-      }
-
-      if (!res.ok) {
-        const message = (body && body.message) || body || `${res.status} ${res.statusText}`;
-        throw new Error(message);
-      }
-
-      const updatedRaw = (body && body.sales) ? body.sales : body;
-      const updated = normalizeOrderFromResponse(updatedRaw);
-
-      // Update local orders with normalized server response (keeps createdAt, etc.)
-      setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
-
-      // --- NEW: refresh orders from server to ensure latest data after status change ---
-      await fetchOrders();
-    } catch (err) {
-      console.error('handleStatusChange error:', err);
-      // rollback optimistic update
-      setOrders(prevOrders);
-      await Swal.fire({
-        icon: 'error',
-        title: 'Status update failed',
-        text: err.message || 'Failed to update status',
-      });
-    } finally {
-      setStatusUpdatingId(null);
-    }
-  };
-
-  // --- Render ---
-  return (
-    <div className="flex flex-col min-h-screen" style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
-      {/* Header */}
-      <Header />
-
-      {/* Main Content */}
-      <main className="flex-grow">
-        <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50 mt-20">
-          {/* Decorative background elements */}
-          <div className="absolute inset-0 overflow-hidden pointer-events-none ">
-            <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-green-200/30 to-emerald-300/30 rounded-full blur-3xl"></div>
-            <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-gradient-to-tr from-teal-200/30 to-green-300/30 rounded-full blur-3xl"></div>
+      <>
+        <Navbar />
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="text-center">
+            <h2 className="text-2xl font-semibold text-gray-900 mb-4">Login Required</h2>
+            <p className="text-gray-600 mb-6">Please login to view your orders.</p>
+            <a 
+              href="/login" 
+              className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-green-600 hover:bg-green-700"
+            >
+              Go to Login
+            </a>
           </div>
+        </div>
+        <Footer />
+      </>
+    );
+  }
 
-          {/* Header Section */}
-          <div className="relative bg-gradient-to-r from-green-100 via-white to-white backdrop-blur-xl shadow-lg border-b border-green-200/50">
-            <div className="max-w-7xl mx-auto px-6 py-6">
-              <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6 mb-8">
-                <div>
-                  <h1 className="text-4xl font-bold bg-gradient-to-r from-green-800 to-emerald-700 bg-clip-text text-transparent mb-2">
-                    My Orders
-                  </h1>
-                  <p className="text-gray-600">Track and manage your purchase history</p>
-                </div>
-
-                <div className="flex items-center gap-3">
+  return (
+    <>
+      <Navbar />
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-white pt-20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <h1 className="text-3xl font-bold text-gray-900 mb-8">My Orders</h1>
+          
+          {/* Filters and Report Generation Section */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+            {/* Filters Row */}
+            <div className="flex flex-col lg:flex-row gap-4 mb-6">
+              {/* Status Filter Buttons */}
+              <div className="flex gap-2 flex-wrap">
+                <span className="text-sm font-medium text-gray-700 self-center mr-2">Filter by Status:</span>
+                {statusOptions.map((status) => (
                   <button
-                    onClick={exportOrders}
-                    className="flex items-center gap-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white px-4 py-2 rounded-xl font-medium hover:from-green-700 hover:to-emerald-700 transition-all duration-200 hover:scale-105 shadow-lg"
+                    key={status.value}
+                    onClick={() => setStatusFilter(status.value)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      statusFilter === status.value
+                        ? 'bg-green-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
                   >
-                    <Download className="w-4 h-4" />
-                    Export Orders
+                    {status.label}
                   </button>
-                </div>
+                ))}
               </div>
 
-              {/* Search and Filters */}
-              <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center">
-                <div className="flex-1 relative">
-                  <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search orders, products, or order IDs..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-12 pr-4 py-3 bg-white/90 backdrop-blur-sm border border-green-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-400 transition-all duration-200 text-gray-700 placeholder-gray-500"
-                  />
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  {filterOptions.map((filter) => (
-                    <button
-                      key={filter}
-                      onClick={() => setActiveFilter(filter)}
-                      className={`px-6 py-3 rounded-2xl font-semibold text-sm transition-all duration-300 ${
-                        activeFilter === filter
-                          ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg transform scale-105 shadow-green-500/25'
-                          : 'bg-white/90 backdrop-blur-sm text-gray-700 border border-green-200 hover:bg-green-50 hover:border-green-300 hover:shadow-md'
-                      }`}
-                    >
-                      {filter}
-                    </button>
+              {/* Time Filter */}
+              <div className="flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-gray-400" />
+                <span className="text-sm font-medium text-gray-700">Time Period:</span>
+                <select 
+                  value={timeFilter}
+                  onChange={(e) => setTimeFilter(e.target.value)}
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                >
+                  {timeOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
                   ))}
-                </div>
+                </select>
+              </div>
 
-                <div className="flex items-center gap-2 bg-white/90 backdrop-blur-sm border border-green-200 rounded-2xl px-4 py-3 hover:border-green-300 transition-all duration-200 shadow-sm">
-                  <Calendar className="w-5 h-5 text-green-600" />
-                  <select
-                    value={dateRange}
-                    onChange={(e) => setDateRange(e.target.value)}
-                    className="bg-transparent text-sm text-gray-700 focus:outline-none font-medium"
+              {/* Clear Filters Button */}
+              {(statusFilter !== 'All' || timeFilter !== 'All time') && (
+                <button
+                  onClick={() => {
+                    setStatusFilter('All');
+                    setTimeFilter('All time');
+                  }}
+                  className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  Clear Filters
+                </button>
+              )}
+            </div>
+
+            {/* Report Generation Section */}
+            <div className="border-t border-gray-200 pt-6">
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-2">
+                    <FileText className="w-6 h-6 text-green-600" />
+                    <h2 className="text-xl font-semibold text-gray-900">Generate Orders Report</h2>
+                  </div>
+                  <p className="text-gray-600">
+                    Download a comprehensive PDF summary of your {statusFilter !== 'All' || timeFilter !== 'All time' ? 'filtered ' : ''}orders including order details, 
+                    status information, and summary statistics.
+                  </p>
+                </div>
+                
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <div className="bg-gray-50 rounded-lg p-4 text-center min-w-[120px]">
+                    <div className="text-2xl font-bold text-gray-900">{filteredOrders.length}</div>
+                    <div className="text-sm text-gray-600">
+                      {statusFilter !== 'All' || timeFilter !== 'All time' ? 'Filtered' : 'Total'} Orders
+                    </div>
+                  </div>
+                  
+                  <div className="bg-green-50 rounded-lg p-4 text-center min-w-[120px]">
+                    <div className="text-2xl font-bold text-green-600">
+                      {filteredOrders.filter(order => order.status === 'Delivered').length}
+                    </div>
+                    <div className="text-sm text-green-600">Completed</div>
+                  </div>
+                  
+                  <button
+                    onClick={generateOrdersReport}
+                    disabled={generatingReport || filteredOrders.length === 0}
+                    className="flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
                   >
-                    <option value="all">All time</option>
-                    <option value="30">Last 30 days</option>
-                    <option value="90">Last 3 months</option>
-                    <option value="365">Last year</option>
-                  </select>
+                    {generatingReport ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4" />
+                        Download PDF
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
             </div>
           </div>
+
+          {/* Results Summary */}
+          {orders.length > 0 && (
+            <div className="mb-4">
+              <p className="text-sm text-gray-600">
+                Showing {filteredOrders.length} of {orders.length} orders
+                {statusFilter !== 'All' && ` with status "${statusFilter}"`}
+                {timeFilter !== 'All time' && ` from ${timeFilter.toLowerCase()}`}
+              </p>
+            </div>
+          )}
 
           {/* Orders List */}
-          <div className="relative max-w-7xl mx-auto px-6 pb-12 mt-10">
-            <div className="grid gap-6">
-              {/* Loading or error */}
-              {loading && (
-                <div className="text-center py-12">
-                  <div className="animate-pulse h-4 w-56 bg-green-200 rounded mx-auto mb-4"></div>
-                  <p className="text-gray-600">Loading orders...</p>
-                </div>
-              )}
-
-              {error && !loading && (
-                <div className="text-center py-12">
-                  <p className="text-red-600 font-semibold">Error: {error}</p>
-                </div>
-              )}
-
-              {!loading &&
-                !error &&
-                filteredOrders.map((order, index) => (
-                  <div
-                    key={`${order.id || index}`}
-                    className="group relative bg-white/95 backdrop-blur-xl rounded-3xl shadow-xl border border-green-100/50 hover:shadow-2xl transition-all duration-500 hover:transform hover:scale-[1.02] overflow-hidden"
-                  >
-                    <div className="absolute inset-0 bg-gradient-to-r from-green-500/20 to-emerald-500/20 rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-
-                    <div className="relative p-8">
-                      <div className="flex flex-col lg:flex-row gap-6">
-                        {/* Order Image */}
-                        <div className="flex-shrink-0">
-                          <div className="w-20 h-20 bg-gradient-to-br from-green-200 via-emerald-200 to-teal-200 rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-300 group-hover:rotate-3">
-                            <Package className="w-8 h-8 text-green-700" />
-                          </div>
-                        </div>
-
-                        {/* Order Info */}
-                        <div className="flex-1 space-y-4">
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                            <div className="flex items-center gap-4 flex-wrap">
-                              {/* Status badge or inline select when editing — only editable for Processing */}
-                              {editingStatusId === order.id ? (
-                                <div className="px-2 py-1 rounded-2xl text-sm font-semibold border-2 flex items-center gap-2 shadow-sm">
-                                  <select
-                                    value={order.status}
-                                    onChange={(e) => handleStatusChange(order.id, e.target.value)}
-                                    disabled={statusUpdatingId === order.id}
-                                    className="bg-transparent outline-none text-gray-900"
-                                  >
-                                    {filterOptions
-                                      .filter((f) => f !== 'All')
-                                      .map((s) => (
-                                        <option key={s} value={s}>
-                                          {s}
-                                        </option>
-                                      ))}
-                                  </select>
-                                  <button
-                                    type="button"
-                                    onClick={() => setEditingStatusId(null)}
-                                    className="ml-2 text-xs px-2 py-1 rounded bg-gray-100"
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
-                              ) : (
-                                <div
-                                  onClick={() => {
-                                    // Only allow editing the status inline when currently Processing
-                                    if (order.status === 'Processing') {
-                                      setEditingStatusId(order.id);
-                                    } else {
-                                      // provide hint to sales
-                                      // keep non-intrusive: small tooltip-like alert
-                                      // (Swal used here)
-                                      Swal.fire({
-                                        icon: 'info',
-                                        title: 'Not editable',
-                                        text: 'Only orders with status "Processing" can be updated.',
-                                      });
-                                    }
-                                  }}
-                                  className={`px-4 py-2 rounded-2xl text-sm font-semibold border-2 ${getStatusStyle(
-                                    order.status
-                                  )} flex items-center gap-2 shadow-sm ${order.status === 'Processing' ? 'cursor-pointer' : 'cursor-default opacity-95'}`}
-                                  title={order.status === 'Processing' ? 'Click to change status' : 'Only Processing orders can be changed'}
-                                >
-                                  {statusUpdatingId === order.id ? (
-                                    <span className="text-sm font-medium">Updating…</span>
-                                  ) : (
-                                    <>
-                                      {getStatusIcon(order.status)}
-                                      {order.status}
-                                    </>
-                                  )}
-                                </div>
-                              )}
-
-                              <span className="text-sm text-gray-600 flex items-center gap-2 bg-gray-100/80 px-3 py-1 rounded-xl">
-                                <Calendar className="w-4 h-4" />
-                                {order.createdAt ? new Date(order.createdAt).toLocaleString() : '—'}
-                              </span>
-                            </div>
-                            <ChevronRight className="w-6 h-6 text-gray-400 group-hover:text-green-600 group-hover:transform group-hover:translate-x-2 transition-all duration-300" />
-                          </div>
-
-                          <div>
-                            <h3 className="text-xl font-bold text-gray-900 mb-2">
-                              Order Description:{' '}
-                              <span className="text-green-700">{order.description || '—'}</span>
-                            </h3>
-                            <h5 className="text-x font-bold text-gray-900 mb-2">
-                              Name:{' '}
-                              <span className="text-green-700">{order.customerName || '—'}</span>
-                            </h5>
-                            <h5 className="text-x font-bold text-gray-900 mb-2">
-                              Email:{' '}
-                              <span className="text-green-700">{order.customerEmail || '—'}</span>
-                            </h5>
-                            <h5 className="text-x font-bold text-gray-900 mb-2">
-                              Address:{' '}
-                              <span className="text-green-700">{order.address || '—'}</span>
-                            </h5>
-                            <h5 className="text-x font-bold text-gray-900 mb-2">
-                              Phone Number:{' '}
-                              <span className="text-green-700">{order.phoneNumber || '—'}</span>
-                            </h5>
-                            <h5 className="text-x font-bold text-gray-900 mb-2">
-                              Quantity:{' '}
-                              <span className="text-green-700">{order.quantity ?? '—'}</span>
-                            </h5>
-                          </div>
-
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4 border-t border-green-100">
-                            <div className="flex gap-3">
-                              {order.status === 'Delivered' && (
-                                <button className="bg-gradient-to-r from-green-100 to-emerald-100 text-green-700 px-4 py-2 rounded-xl font-semibold hover:from-green-200 hover:to-emerald-200 transition-all duration-200 hover:scale-105 border border-green-200">
-                                  Reorder
-                                </button>
-                              )}
-
-                              {/* Update opens modal — only show for Processing */}
-                              {order.status === 'Processing' && (
-                                <button
-                                  onClick={() => openUpdateModal(order)}
-                                  className="bg-gradient-to-r from-green-600 to-emerald-600 text-white px-6 py-2 rounded-xl font-semibold hover:from-green-700 hover:to-emerald-700 transition-all duration-200 hover:scale-105 shadow-lg hover:shadow-green-500/25"
-                                >
-                                  Update
-                                </button>
-                              )}
-
-                              {order.status !== 'Processing' && (
-                                <button
-                                  className="px-6 py-2 rounded-xl font-semibold text-gray-400 border border-gray-200 bg-white cursor-not-allowed"
-                                  title="Only Processing orders can be updated"
-                                  disabled
-                                >
-                                  Update
-                                </button>
-                              )}
-
-                              {order.status === 'Processing' && (
-                                <button
-                                  onClick={() => handleDelete(order.id)}
-                                  disabled={deletingId === order.id}
-                                  className={`px-6 py-2 rounded-xl font-semibold transition-all duration-200 shadow-lg ${
-                                    deletingId === order.id
-                                      ? 'bg-red-400 text-white cursor-not-allowed'
-                                      : 'bg-gradient-to-r from-red-600 to-red-600 text-white hover:from-red-700 hover:to-red-700 hover:scale-105'
-                                  }`}
-                                >
-                                  {deletingId === order.id ? 'Deleting…' : 'Delete'}
-                                </button>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Additional Info */}
-                          {order.estimatedDelivery && order.status === 'Processing' && (
-                            <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-2xl p-4">
-                              <p className="text-sm text-green-800 font-medium">
-                                Estimated delivery:{' '}
-                                <span className="font-bold">{order.estimatedDelivery}</span>
-                              </p>
-                            </div>
-                          )}
-
-                          {order.deliveredDate && order.status === 'Delivered' && (
-                            <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-2xl p-4">
-                              <p className="text-sm text-green-800 font-medium">
-                                Delivered on: <span className="font-bold">{order.deliveredDate}</span>
-                              </p>
-                            </div>
-                          )}
-
-                          {order.cancelReason && order.status === 'Cancelled' && (
-                            <div className="bg-gradient-to-r from-red-50 to-pink-50 border border-red-200 rounded-2xl p-4">
-                              <p className="text-sm text-red-800 font-medium">
-                                Cancellation reason:{' '}
-                                <span className="font-bold">{order.cancelReason}</span>
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="h-1 bg-gradient-to-r from-green-500 via-emerald-500 to-teal-500 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left"></div>
-                  </div>
-                ))}
-
-              {/* Empty State */}
-              {!loading && !error && filteredOrders.length === 0 && (
-                <div className="text-center py-20">
-                  <div className="bg-gradient-to-br from-green-100 to-emerald-100 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg">
-                    <Package className="w-12 h-12 text-green-600" />
-                  </div>
-                  <h3 className="text-2xl font-bold text-gray-900 mb-3">No orders found</h3>
-                  <p className="text-gray-600 mb-6 max-w-md mx-auto">
-                    {searchTerm ? 'Try adjusting your search terms or filters.' : 'Your order history will appear here once you make your first purchase.'}
-                  </p>
-                  <button className="bg-gradient-to-r from-green-600 to-emerald-600 text-white px-8 py-3 rounded-2xl font-semibold hover:from-green-700 hover:to-emerald-700 transition-all duration-200 hover:scale-105 shadow-lg">
-                    Start Shopping
-                  </button>
-                </div>
-              )}
+          {loading ? (
+            <div className="flex justify-center items-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+              <span className="ml-2 text-gray-600">Loading orders...</span>
             </div>
-
-            {/* Stats Bar */}
-            <div className="bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-green-200/50 shadow-2xl mt-8">
-              <div className="max-w-7xl mx-auto px-6 py-4">
-                <div className="flex justify-center gap-8 text-center">
-                  <div className="group cursor-pointer">
-                    <div className="text-2xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent group-hover:from-green-700 group-hover:to-emerald-700 transition-all duration-200">
-                      {orders.filter((o) => o.status === 'Delivered').length}
-                    </div>
-                    <div className="text-xs text-gray-600 font-medium">Delivered</div>
-                  </div>
-                  <div className="group cursor-pointer">
-                    <div className="text-2xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent group-hover:from-green-700 group-hover:to-emerald-700 transition-all duration-200">
-                      {orders.filter((o) => o.status === 'Processing').length}
-                    </div>
-                    <div className="text-xs text-gray-600 font-medium">Processing</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </main>
-
-      {/* Footer */}
-      <Footer />
-
-      {/* --- Update Modal --- */}
-      {isModalOpen && modalData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-          {/* overlay */}
-          <div
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={() => {
-              if (!isUpdating) closeUpdateModal();
-            }}
-          />
-
-          <div className="relative w-full max-w-2xl mx-auto bg-white rounded-2xl shadow-2xl overflow-hidden ring-1 ring-black/5">
-            <div className="flex items-center justify-between px-6 py-4 border-b">
-              <div className="flex items-center gap-3">
-                <h3 className="text-lg font-semibold text-gray-900">Update Order</h3>
-                <span className="text-sm text-gray-500">Edit details and status</span>
-              </div>
-
-              <button
-                onClick={() => {
-                  if (!isUpdating) closeUpdateModal();
-                }}
-                aria-label="Close"
-                className="rounded-md p-1 hover:bg-gray-100"
+          ) : error ? (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+              <p className="text-red-600">{error}</p>
+              <button 
+                onClick={fetchOrders}
+                className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
               >
-                <XIcon className="w-6 h-6 text-gray-600" />
+                Try Again
               </button>
             </div>
+          ) : orders.length === 0 ? (
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
+              <Package className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No orders found</h3>
+              <p className="text-gray-600 mb-6">You haven't placed any orders yet.</p>
+              <a 
+                href="/shop" 
+                className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-green-600 hover:bg-green-700"
+              >
+                Start Shopping
+              </a>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {orders.map((order) => (
+                <div key={order._id} className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="p-6">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900">
+                          Order #{order._id?.slice(-8)}
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          Placed on {new Date(order.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-50 text-blue-600 border border-blue-200">
+                        <Clock className="w-4 h-4 mr-1" />
+                        {order.status}
+                      </span>
+                    </div>
 
-            <form onSubmit={submitUpdate} className="p-6 space-y-4">
-              {updateError && (
-                <div className="text-red-700 font-medium bg-red-50 p-3 rounded-md border border-red-100">
-                  {updateError}
+                    {order.items && order.items.length > 0 && (
+                      <div className="border-t border-gray-200 pt-4">
+                        <div className="space-y-3">
+                          {order.items.map((item, index) => (
+                            <div key={index} className="flex items-center space-x-4">
+                              <img
+                                src={item.image || 'https://via.placeholder.com/60x60?text=Product'}
+                                alt={item.name}
+                                className="w-12 h-12 object-cover rounded-lg border border-gray-200"
+                              />
+                              <div className="flex-1">
+                                <h4 className="text-sm font-medium text-gray-900">{item.name}</h4>
+                                <p className="text-sm text-gray-600">Qty: {item.quantity}</p>
+                              </div>
+                              <div className="text-sm font-medium text-gray-900">
+                                {formatPrice(item.price * item.quantity)}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        
+                        <div className="flex justify-between items-center mt-4 pt-4 border-t border-gray-200">
+                          <span className="text-sm text-gray-600">
+                            {order.items.length} items
+                          </span>
+                          <span className="text-lg font-semibold text-gray-900">
+                            Total: {formatPrice(order.total)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              )}
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <label className="flex flex-col text-sm">
-                  <span className="font-medium text-gray-800">Customer Name</span>
-                  <input
-                    value={modalData.customerName}
-                    onChange={(e) => handleModalChange('customerName', e.target.value)}
-                    className="mt-1 px-4 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 placeholder-gray-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-black/10 transition-colors"
-                    placeholder="Full name"
-                    required
-                  />
-                </label>
-
-                <label className="flex flex-col text-sm">
-                  <span className="font-medium text-gray-800">Customer Email</span>
-                  <input
-                    type="email"
-                    value={modalData.customerEmail}
-                    onChange={(e) => handleModalChange('customerEmail', e.target.value)}
-                    className="mt-1 px-4 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 placeholder-gray-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-black/10 transition-colors"
-                    placeholder="name@example.com"
-                    required
-                  />
-                </label>
-
-                <label className="flex flex-col text-sm">
-                  <span className="font-medium text-gray-800">Phone Number</span>
-                  <input
-                    value={modalData.phoneNumber}
-                    onChange={(e) => handleModalChange('phoneNumber', e.target.value)}
-                    className="mt-1 px-4 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 placeholder-gray-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-black/10 transition-colors"
-                    placeholder="+1 555 555 5555"
-                    required
-                  />
-                </label>
-
-                <label className="flex flex-col text-sm">
-                  <span className="font-medium text-gray-800">Quantity</span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={modalData.quantity}
-                    onChange={(e) => handleModalChange('quantity', e.target.value === '' ? '' : Number(e.target.value))}
-                    className="mt-1 px-4 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 placeholder-gray-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-black/10 transition-colors"
-                    required
-                  />
-                </label>
-              </div>
-
-              <label className="flex flex-col text-sm">
-                <span className="font-medium text-gray-800">Address</span>
-                <input
-                  value={modalData.address}
-                  onChange={(e) => handleModalChange('address', e.target.value)}
-                  className="mt-1 px-4 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 placeholder-gray-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-black/10 transition-colors"
-                  placeholder="Shipping address"
-                  required
-                />
-              </label>
-
-              <label className="flex flex-col text-sm">
-                <span className="font-medium text-gray-800">Description</span>
-                <textarea
-                  value={modalData.description}
-                  onChange={(e) => handleModalChange('description', e.target.value)}
-                  className="mt-1 px-4 py-3 border border-gray-200 rounded-lg bg-white text-gray-900 placeholder-gray-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-black/10 transition-colors"
-                  rows={3}
-                  placeholder="Order notes, items, etc."
-                  required
-                />
-              </label>
-
-              <div className="flex items-center justify-end gap-3 pt-4 border-t">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!isUpdating) closeUpdateModal();
-                  }}
-                  className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 bg-white hover:bg-gray-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isUpdating}
-                  className={`px-6 py-2 rounded-lg font-semibold text-white inline-flex items-center justify-center gap-3 shadow-lg transition-all ${
-                    isUpdating
-                      ? 'bg-gray-700 cursor-not-allowed'
-                      : 'bg-black hover:bg-neutral-900 active:scale-95'
-                  }`}
-                >
-                  {isUpdating && (
-                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-                    </svg>
-                  )}
-                  {isUpdating ? 'Updating…' : 'Update Order'}
-                </button>
-              </div>
-            </form>
-          </div>
+              ))}
+            </div>
+          )}
         </div>
-      )}
-    </div>
+      </div>
+      <Footer />
+    </>
   );
 };
 
-export default MyOrdersPage;
+export default MyOrders;
+const gridVariants = {
+  hidden: {},
+  visible: {
+    transition: {
+      staggerChildren: 0.12
+    }
+  }
+};
+
+const cardVariants = {
+  hidden: { opacity: 0, y: 30 },
+  visible: { opacity: 1, y: 0 }
+};
+
+const PRICE_FILTERS = [
+  { id: 'all', label: 'Price', predicate: () => true },
+  { id: 'under-1000', label: 'Under 1,000', predicate: (price) => price !== null && price < 1000 },
+  {
+    id: '1000-2000',
+    label: '1,000 - 2,000',
+    predicate: (price) => price !== null && price >= 1000 && price <= 2000
+  },
+  { id: 'over-2000', label: 'Over 2,000', predicate: (price) => price !== null && price > 2000 }
+];
+
+const sortOptions = [
+  { id: 'alphabetical-asc', label: 'Alphabetically, A-Z' },
+  { id: 'alphabetical-desc', label: 'Alphabetically, Z-A' },
+  { id: 'price-low-high', label: 'Price, Low to High' },
+  { id: 'price-high-low', label: 'Price, High to Low' }
+];
+
+const CaretDownIcon = (props) => (
+  <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" {...props}>
+    <path
+      d="M4.5 6.5L8 10l3.5-3.5"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+const getNumericPrice = (product) => {
+  const rawPrice = product?.price;
+  if (rawPrice === undefined || rawPrice === null || rawPrice === '') return null;
+  const numeric = Number(rawPrice);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const extractTeaType = (product) => {
+  const candidate =
+    product?.teaType ||
+    product?.tea_type ||
+    product?.tea_type_name ||
+    product?.category ||
+    product?.categoryName ||
+    product?.category_name ||
+    product?.type ||
+    product?.productType ||
+    product?.product_type;
+
+  if (!candidate) return '';
+  return String(candidate).trim();
+};
+
+const getDescription = (product) => {
+  const content = [product?.shortDescription, product?.short_description, product?.description]
+    .find((value) => value && String(value).trim());
+  if (!content) return '';
+  return String(content).replace(/<[^>]+>/g, '').trim();
+};
+
+const Shop = () => {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [priceFilter, setPriceFilter] = useState('all');
+  const [teaTypeFilter, setTeaTypeFilter] = useState('all');
+  const [sortBy, setSortBy] = useState(sortOptions[0].id);
+  const { addToCart } = useCart();
+
+  useEffect(() => {
+    let active = true;
+
+    const fetchProducts = async () => {
+      try {
+        const data = await InventoryAPI.listProductsPublic();
+        if (!active) return;
+        setProducts(Array.isArray(data) ? data : []);
+        setError('');
+      } catch (err) {
+        if (!active) return;
+        const message = err?.response?.data?.message || err?.message || 'Unable to load products right now.';
+        setError(message);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    fetchProducts();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const formatPrice = (product) => {
+    if (product?.price === undefined || product?.price === null || product?.price === '') return '';
+    const numeric = Number(product.price);
+    if (Number.isNaN(numeric)) return '';
+    const currency = (product.currency || 'LKR').toUpperCase();
+    return `${currency} ${numeric.toFixed(2)}`;
+  };
+
+  const availableTeaTypes = [
+    { value: 'black-tea', label: 'Black Tea' },
+    { value: 'green-tea', label: 'Green Tea' },
+    { value: 'white-tea', label: 'White Tea' },
+    { value: 'herbal', label: 'Herbal' },
+    { value: 'flavoured', label: 'Flavoured' }
+  ];
+
+  const availablePriceFilters = useMemo(() => {
+    const priceValues = products
+      .map((product) => getNumericPrice(product))
+      .filter((value) => value !== null);
+
+    if (priceValues.length === 0) {
+      return PRICE_FILTERS.filter((filter) => filter.id === 'all');
+    }
+
+    return PRICE_FILTERS.filter((filter) =>
+      filter.id === 'all' || priceValues.some((value) => filter.predicate(value))
+    );
+  }, [products]);
+
+  useEffect(() => {
+    if (!availablePriceFilters.some((filter) => filter.id === priceFilter)) {
+      setPriceFilter('all');
+    }
+  }, [availablePriceFilters, priceFilter]);
+
+
+  const filteredAndSortedProducts = useMemo(() => {
+    const pricePredicate = PRICE_FILTERS.find((filter) => filter.id === priceFilter)?.predicate || (() => true);
+
+    const list = products
+      .filter((product) => {
+        const numericPrice = getNumericPrice(product);
+        if (!pricePredicate(numericPrice)) return false;
+
+        if (teaTypeFilter !== 'all') {
+          const productTeaType = extractTeaType(product).toLowerCase();
+          const normalizedProductType = productTeaType.replace(/\s+/g, '-');
+          if (!productTeaType || normalizedProductType !== teaTypeFilter) return false;
+        }
+
+        return true;
+      })
+      .map((product) => ({ ...product }));
+
+    const compareByName = (a, b) => {
+      const nameA = (a?.name || a?.title || '').toString().toLowerCase();
+      const nameB = (b?.name || b?.title || '').toString().toLowerCase();
+      return nameA.localeCompare(nameB);
+    };
+
+    const compareByPrice = (a, b) => {
+      const priceA = getNumericPrice(a);
+      const priceB = getNumericPrice(b);
+      if (priceA === null && priceB === null) return 0;
+      if (priceA === null) return 1;
+      if (priceB === null) return -1;
+      return priceA - priceB;
+    };
+
+    switch (sortBy) {
+      case 'alphabetical-desc':
+        return list.sort((a, b) => compareByName(b, a));
+      case 'price-low-high':
+        return list.sort(compareByPrice);
+      case 'price-high-low':
+        return list.sort((a, b) => compareByPrice(b, a));
+      case 'alphabetical-asc':
+      default:
+        return list.sort(compareByName);
+    }
+  }, [products, priceFilter, teaTypeFilter, sortBy]);
+
+  const handlePriceChange = (event) => {
+    setPriceFilter(event.target.value);
+  };
+
+  const handleTeaTypeChange = (event) => {
+    setTeaTypeFilter(event.target.value);
+  };
+
+  const handleSortChange = (event) => {
+    setSortBy(event.target.value);
+  };
+
+  const handleAddToCart = (product) => {
+    const productToAdd = {
+      id: product?.id ?? product?._id ?? product?.sku,
+      name: product?.name || product?.title || 'Product',
+      price: product?.price || 0,
+      image: product?.image ? toImageUrl(product.image) : fallbackProductImage,
+      description: getDescription(product)
+    };
+    addToCart(productToAdd);
+  };
+
+  const resultsText = loading ? 'Loading products...' : `${filteredAndSortedProducts.length} products`;
+
+  return (
+    <>
+      <Navbar />
+      <div className="min-h-screen">
+        {/* Hero Section */}
+        <section
+          className="min-h-screen relative flex items-start pt-24 md:pt-32 pb-16"
+          style={{
+            backgroundImage: 'url(/images/shopBg.png)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center'
+          }}
+        >
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent to-white/10"></div>
+          <div className="container mx-auto px-4 z-10">
+            <div className="max-w-3xl mx-auto text-center space-y-6">
+              <motion.p
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6 }}
+                className="text-[#0b6b3c] text-xs md:text-sm tracking-[0.35em] uppercase font-medium"
+              >
+                SHOP & LEARN
+              </motion.p>
+              <motion.h1
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.2 }}
+                className="text-[32px] font-semibold text-[#006838] leading-tight"
+              >
+                bring the wonder of nature to everyday moments with our delicious herbal teas
+              </motion.h1>
+            </div>
+          </div>
+        </section>
+
+        {/* Shop Intro Section */}
+        <section className="bg-white py-16">
+          <div className="container mx-auto px-4">
+            <div className="grid md:grid-cols-3 gap-12">
+              <div className="md:col-span-2 md:ml-12">
+                <h2 className="text-4xl font-semibold text-gray-900">Shop</h2>
+                <div className="mt-4 flex items-center gap-2">
+                  <span className="h-[2px] w-20 bg-gray-900"></span>
+                  <span className="h-px flex-1 bg-gray-200"></span>
+                </div>
+                <p className="mt-8 text-gray-700 leading-relaxed">
+                  Enjoy the perfect cup of Ceylon Tea and feel the magic of our Connoisseur Collection, Premium Collection,
+                  luxury teas and herbal infusions that bring a sense of elegance to your cup of tea. We have perfected the art
+                  of tea so no matter which variety of ZenTea tea you decide to experience you will always enjoy a cup of Sri
+                  Lanka's finest.
+                </p>
+              </div>
+              <div className="md:pl-8">
+                <h3 className="text-2xl font-semibold text-gray-900 mb-4">Contact Us</h3>
+                <p className="text-gray-700 leading-relaxed">
+                  We are here to answer any questions you may have about our products or services.
+                </p>
+                <p className="mt-6 text-gray-700 leading-relaxed">
+                  Reach out to us today and we will respond to you as soon as possible.
+                </p>
+                <a
+                  href="mailto:customercare@zestaceylontea.com"
+                  className="mt-6 inline-block text-green-900 font-semibold"
+                >
+                  customercare@zenteaceylon.com
+                </a>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Product Grid Section */}
+        <section className="bg-gray-50 py-16">
+          <div className="container mx-auto px-4">
+            
+
+            <div className="max-w-7xl mx-auto">
+              <div className="mb-6">
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-wrap items-center justify-between">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="text-sm font-semibold text-gray-900">Filter:</span>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="relative">
+                          <select
+                            value={priceFilter}
+                            onChange={handlePriceChange}
+                            className="w-[120px] appearance-none rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 shadow-sm transition-colors duration-200 focus:outline-none"
+                          >
+                            {availablePriceFilters.map((option) => (
+                              <option key={option.id} value={option.id}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          <CaretDownIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-700" />
+                        </div>
+                        <div className="relative">
+                          <select
+                            value={teaTypeFilter}
+                            onChange={handleTeaTypeChange}
+                            className="w-[120px] appearance-none rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 shadow-sm transition-colors duration-200 focus:outline-none"
+                          >
+                            <option value="all">Tea Type</option>
+                            <option value="black-tea">Black Tea</option>
+                            <option value="green-tea">Green Tea</option>
+                            <option value="white-tea">White Tea</option>
+                            <option value="herbal">Herbal</option>
+                            <option value="flavoured">Flavoured</option>
+                          </select>
+                          <CaretDownIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-700" />
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-semibold text-gray-900">Sort by:</span>
+                      <div className="relative">
+                        <select
+                          value={sortBy}
+                          onChange={handleSortChange}
+                          className="w-[200px] appearance-none rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 shadow-sm transition-colors duration-200 focus:outline-none"
+                        >
+                          {sortOptions.map((option) => (
+                            <option key={option.id} value={option.id}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <CaretDownIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-700" />
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="text-sm text-gray-600">{resultsText}</div>
+                </div>
+              </div>
+            </div>
+
+            {error && (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-6 text-red-700">
+                {error}
+              </div>
+            )}
+
+            {!loading && !error && filteredAndSortedProducts.length === 0 && (
+              <div className="rounded-xl border border-gray-200 bg-white px-4 py-12 text-center text-gray-600">
+                No products match the selected filters. Please adjust your filters and try again.
+              </div>
+            )}
+
+            {!loading && !error && filteredAndSortedProducts.length > 0 && (
+              <motion.div
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true, amount: 0.2 }}
+                variants={gridVariants}
+                className="grid grid-cols-1 justify-center justify-items-center gap-x-6 gap-y-8 md:grid-cols-2 lg:grid-cols-4 max-w-7xl mx-auto"
+              >
+                {filteredAndSortedProducts.map((product, index) => {
+                  const rawImage = product?.image;
+                  const imageUrl = rawImage ? toImageUrl(rawImage) : '';
+                  const displayImage = imageUrl || fallbackProductImage;
+                  const price = formatPrice(product);
+                  const description = getDescription(product);
+                  const trimmedDescription = description && description.length > 140 ? `${description.slice(0, 137)}...` : description;
+                  const name = product?.name || product?.title || 'Product';
+
+                  return (
+                    <motion.div
+                      key={product?.id ?? product?._id ?? product?.sku ?? index}
+                      variants={cardVariants}
+                      className="group flex h-[456px] w-full max-w-[256px] flex-col overflow-hidden rounded-none bg-white shadow-md transition-transform duration-300 hover:shadow-lg hover:scale-[1.02]"
+                    >
+                      <div className="relative overflow-hidden">
+                        <img
+                          src={displayImage}
+                          alt={name}
+                          className="h-[280px] w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                          loading="lazy"
+                        />
+                      </div>
+                      <div className="flex flex-1 flex-col px-5 py-5">
+                        <h3 className="text-base font-semibold text-gray-900">{name}</h3>
+                        {trimmedDescription && (
+                          <p className="mt-2 flex-1 text-sm text-gray-600">{trimmedDescription}</p>
+                        )}
+                        {price && (
+                          <p className="mt-4 text-sm font-semibold text-gray-900">{price}</p>
+                        )}
+                        <div className="mt-auto pt-4">
+                          <button
+                            type="button"
+                            onClick={() => handleAddToCart(product)}
+                            className="w-full h-[44px] rounded-full border border-gray-900 bg-white text-base font-medium text-gray-900 transition-colors duration-200 hover:bg-black hover:text-white focus:outline-none"
+                          >
+                            Buy now
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </motion.div>
+            )}
+          </div>
+        </section>
+      </div>
+      <IngredientHighlight />
+      <FeatureSteps 
+        features={[
+          {
+            step: "Step 1",
+            title: "mint",
+            content: "Our herbal teas feature refreshing spearmint and cool peppermint, organically grown worldwide for optimal flavour and freshness.",
+            image: "/images/Tea1.png",
+          },
+          {
+            step: "Step 2",
+            title: "chamomile",
+            content: "Chamomile, sourced from organic farms worldwide, infuses our teas with natural soothing essence, bringing comfort and relaxation in every sip.",
+            image: "/images/Tea2.png",
+          },
+          {
+            step: "Step 3",
+            title: "green tea",
+            content: "Rich in nutrients, green tea has long been valued for its invigorating qualities. Blended with matcha, it energizes and connects you with nature’s best.",
+            image: "/images/Tea3.png",
+          },
+        ]}
+        title=""
+        imageHeight="h-[460px] w-[460px]"
+      />
+      
+      <Footer />
+    </>
+  );
+};

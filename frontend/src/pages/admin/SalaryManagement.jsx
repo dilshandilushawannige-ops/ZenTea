@@ -49,6 +49,108 @@ export default function SalaryManagement() {
   const [previewSlip, setPreviewSlip] = useState(null);
   const [loading, setLoading] = useState(false);
   const [toasts, setToasts] = useState([]);
+  const [errors, setErrors] = useState({});
+
+  // Validation functions
+  const validateEmployeeId = (id) => {
+    const pattern = /^EM\d{3}$/;
+    if (!id) return 'Employee ID is required';
+    if (id.length !== 5) return 'Employee ID must be exactly 5 characters (EM###)';
+    if (!pattern.test(id)) return 'Employee ID must follow EM### pattern (e.g., EM001, EM002)';
+    return null;
+  };
+
+  const validateNumericField = (value, fieldName, min = 0, max = null) => {
+    if (value === '' || value === null || value === undefined) return null;
+    const num = Number(value);
+    if (isNaN(num)) return `${fieldName} must be a number`;
+    if (num < min) return `${fieldName} cannot be negative`;
+    if (max !== null && num > max) return `${fieldName} cannot exceed ${max}`;
+    return null;
+  };
+
+  const validateMonth = (month) => {
+    if (!month) return 'Month is required';
+    const selectedDate = new Date(month + '-01');
+    const currentDate = new Date();
+    const currentMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+    
+    if (selectedDate < currentMonth) {
+      return 'Month cannot be in the past. Please select current or future month.';
+    }
+    return null;
+  };
+
+  const validateOTHours = (hours, fieldName) => {
+    const error = validateNumericField(hours, fieldName, 0, 300);
+    if (error) return error;
+    const num = Number(hours || 0);
+    if (num > 300) return `${fieldName} cannot exceed 300 hours per month`;
+    return null;
+  };
+
+  const validateTotalEarnings = (formData = form) => {
+    const basic = Number(formData.basic || 0);
+    const allowances = Number(formData.allowances || 0);
+    const bonus = Number(formData.bonus || 0);
+    const deductions = Number(formData.deductions || 0);
+    const loan = Number(formData.loan || 0);
+    const weekdayOtRate = 100; // Assumed rate per hour
+    const holidayOtRate = 150; // Assumed rate per hour
+    const weekdayOtAmount = Number(formData.weekdayOtHours || 0) * weekdayOtRate;
+    const holidayOtAmount = Number(formData.holidayOtHours || 0) * holidayOtRate;
+    
+    const totalEarnings = basic + allowances + bonus + weekdayOtAmount + holidayOtAmount;
+    const totalDeductions = deductions + loan;
+    const netEarnings = totalEarnings - totalDeductions;
+    
+    if (netEarnings < 0) {
+      return 'Total deductions and loan amount exceed total earnings. Net salary cannot be negative.';
+    }
+    return null;
+  };
+
+  const validateForm = () => {
+    const newErrors = {};
+    
+    // Employee ID validation
+    const employeeIdError = validateEmployeeId(form.employeeId);
+    if (employeeIdError) newErrors.employeeId = employeeIdError;
+    
+    // Numeric fields validation
+    const basicError = validateNumericField(form.basic, 'Basic salary');
+    if (basicError) newErrors.basic = basicError;
+    
+    const allowancesError = validateNumericField(form.allowances, 'Allowances');
+    if (allowancesError) newErrors.allowances = allowancesError;
+    
+    const bonusError = validateNumericField(form.bonus, 'Bonus');
+    if (bonusError) newErrors.bonus = bonusError;
+    
+    const deductionsError = validateNumericField(form.deductions, 'Deductions');
+    if (deductionsError) newErrors.deductions = deductionsError;
+    
+    const loanError = validateNumericField(form.loan, 'Loan');
+    if (loanError) newErrors.loan = loanError;
+    
+    // OT Hours validation
+    const weekdayOtError = validateOTHours(form.weekdayOtHours, 'Weekday OT hours');
+    if (weekdayOtError) newErrors.weekdayOtHours = weekdayOtError;
+    
+    const holidayOtError = validateOTHours(form.holidayOtHours, 'Holiday OT hours');
+    if (holidayOtError) newErrors.holidayOtHours = holidayOtError;
+    
+    // Month validation
+    const monthError = validateMonth(form.month);
+    if (monthError) newErrors.month = monthError;
+    
+    // Total earnings validation
+    const totalEarningsError = validateTotalEarnings();
+    if (totalEarningsError) newErrors.totalEarnings = totalEarningsError;
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const showToast = (type, title, message) => {
     const id = `${Date.now()}-${Math.random()}`;
@@ -62,11 +164,112 @@ export default function SalaryManagement() {
 
   const change = (e) => {
     const { name, value } = e.target;
+    
+    // Clear the error for this field when user starts typing
+    if (errors[name]) {
+      setErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[name];
+        return newErrors;
+      });
+    }
+    
     if (numericFields.includes(name)) {
       const sanitised = value === '' ? '' : String(Number(value.replace(/[^0-9]/g, '') || 0));
-      setForm((prev) => ({ ...prev, [name]: sanitised }));
+      setForm((prev) => {
+        const newForm = { ...prev, [name]: sanitised };
+        
+        // Real-time validation for numeric fields
+        setTimeout(() => {
+          let error = null;
+          if (name === 'weekdayOtHours' || name === 'holidayOtHours') {
+            error = validateOTHours(sanitised, name === 'weekdayOtHours' ? 'Weekday OT hours' : 'Holiday OT hours');
+          } else {
+            error = validateNumericField(sanitised, name.charAt(0).toUpperCase() + name.slice(1));
+          }
+          
+          if (error) {
+            setErrors(prev => ({ ...prev, [name]: error }));
+          }
+          
+          // Check total earnings consistency when relevant fields change
+          if (['basic', 'allowances', 'bonus', 'deductions', 'loan', 'weekdayOtHours', 'holidayOtHours'].includes(name)) {
+            const totalError = validateTotalEarnings(newForm);
+            setErrors(prev => {
+              const newErrors = { ...prev };
+              if (totalError) {
+                newErrors.totalEarnings = totalError;
+              } else {
+                delete newErrors.totalEarnings;
+              }
+              return newErrors;
+            });
+          }
+        }, 300);
+        
+        return newForm;
+      });
+    } else if (name === 'employeeId') {
+      // Special handling for Employee ID - restrict input format
+      let sanitizedValue = value.toUpperCase();
+      
+      // Remove any characters that are not E, M, or digits
+      sanitizedValue = sanitizedValue.replace(/[^EM0-9]/g, '');
+      
+      // Ensure it starts with "EM" if user types anything
+      if (sanitizedValue.length > 0 && !sanitizedValue.startsWith('EM')) {
+        if (sanitizedValue.startsWith('E')) {
+          sanitizedValue = 'EM' + sanitizedValue.substring(1);
+        } else if (sanitizedValue.match(/^\d/)) {
+          sanitizedValue = 'EM' + sanitizedValue;
+        } else {
+          sanitizedValue = 'EM';
+        }
+      }
+      
+      // Limit to exactly 5 characters (EM + 3 digits)
+      if (sanitizedValue.length > 5) {
+        sanitizedValue = sanitizedValue.substring(0, 5);
+      }
+      
+      // Ensure the format is correct: if it's longer than 2 chars, the rest must be digits
+      if (sanitizedValue.length > 2) {
+        const prefix = sanitizedValue.substring(0, 2);
+        const suffix = sanitizedValue.substring(2).replace(/[^0-9]/g, '');
+        sanitizedValue = prefix + suffix;
+      }
+      
+      setForm((prev) => {
+        const newForm = { ...prev, [name]: sanitizedValue };
+        
+        // Real-time validation for employee ID
+        setTimeout(() => {
+          const error = validateEmployeeId(sanitizedValue);
+          if (error) {
+            setErrors(prev => ({ ...prev, [name]: error }));
+          }
+        }, 300);
+        
+        return newForm;
+      });
     } else {
-      setForm((prev) => ({ ...prev, [name]: value }));
+      setForm((prev) => {
+        const newForm = { ...prev, [name]: value };
+        
+        // Real-time validation for other fields
+        setTimeout(() => {
+          let error = null;
+          if (name === 'month') {
+            error = validateMonth(value);
+          }
+          
+          if (error) {
+            setErrors(prev => ({ ...prev, [name]: error }));
+          }
+        }, 300);
+        
+        return newForm;
+      });
     }
   };
 
@@ -83,6 +286,13 @@ export default function SalaryManagement() {
     if (!id) {
       return showToast('info', 'Employee ID required', 'Enter an ID such as EM001 to load payslips.');
     }
+    
+    // Validate Employee ID format before searching
+    const validationError = validateEmployeeId(id);
+    if (validationError) {
+      return showToast('error', 'Invalid Employee ID', validationError);
+    }
+    
     try {
       setLoading(true);
       const { data } = await listPayslipsByEmployee(id);
@@ -98,36 +308,168 @@ export default function SalaryManagement() {
     }
   };
 
+  const handleSearchIdChange = (e) => {
+    const { value } = e.target;
+    
+    // Apply the same Employee ID formatting logic as the form
+    let sanitizedValue = value.toUpperCase();
+    
+    // Remove any characters that are not E, M, or digits
+    sanitizedValue = sanitizedValue.replace(/[^EM0-9]/g, '');
+    
+    // Ensure it starts with "EM" if user types anything
+    if (sanitizedValue.length > 0 && !sanitizedValue.startsWith('EM')) {
+      if (sanitizedValue.startsWith('E')) {
+        sanitizedValue = 'EM' + sanitizedValue.substring(1);
+      } else if (sanitizedValue.match(/^\d/)) {
+        sanitizedValue = 'EM' + sanitizedValue;
+      } else {
+        sanitizedValue = 'EM';
+      }
+    }
+    
+    // Limit to exactly 5 characters (EM + 3 digits)
+    if (sanitizedValue.length > 5) {
+      sanitizedValue = sanitizedValue.substring(0, 5);
+    }
+    
+    // Ensure the format is correct: if it's longer than 2 chars, the rest must be digits
+    if (sanitizedValue.length > 2) {
+      const prefix = sanitizedValue.substring(0, 2);
+      const suffix = sanitizedValue.substring(2).replace(/[^0-9]/g, '');
+      sanitizedValue = prefix + suffix;
+    }
+    
+    setSearchId(sanitizedValue);
+  };
+
   const save = async () => {
+    if (!validateForm()) {
+      showToast('error', 'Validation Error', 'Please fix the validation errors before saving.');
+      return;
+    }
+    
     try {
+      // Save the salary data
       const payload = buildPayload();
       const { data } = await saveSalary(payload);
       showToast('success', 'Salary saved', data.message || 'Details recorded successfully.');
+      
+      // Automatically generate payslip after saving
+      try {
+        showToast('info', 'Generating payslip...', 'Creating payslip for this salary data.');
+        
+        const payslipPayload = { employeeId: form.employeeId, month: form.month };
+        const payslipResult = await generatePayslip(payslipPayload);
+        
+        const absolute = payslipResult.data?.pdfPath
+          ? payslipResult.data.pdfPath.startsWith('http')
+            ? payslipResult.data.pdfPath
+            : `${apiBase}${payslipResult.data.pdfPath}`
+          : null;
+        
+        showToast('success', 'Payslip generated', 'Salary saved and payslip created successfully.');
+        
+        // Open the generated payslip in a new tab
+        if (absolute) {
+          window.open(absolute, '_blank', 'noopener');
+        }
+        
+        // Refresh the payslips list to show the new payslip
+        if (form.employeeId) {
+          const slipsRes = await listPayslipsByEmployee(form.employeeId);
+          const refreshed = Array.isArray(slipsRes.data) ? slipsRes.data : Array.isArray(slipsRes.data?.slips) ? slipsRes.data.slips : [];
+          setSlips(refreshed);
+        }
+        
+      } catch (payslipErr) {
+        console.error('Payslip generation error:', payslipErr);
+        const payslipErrorMessage = payslipErr.response?.data?.message || 'Could not generate payslip.';
+        
+        if (payslipErrorMessage.includes('already exists')) {
+          showToast('warning', 'Payslip exists', 'Salary saved successfully, but payslip for this month already exists.');
+        } else {
+          showToast('warning', 'Payslip generation failed', `Salary saved, but payslip generation failed: ${payslipErrorMessage}`);
+        }
+      }
+      
+      // Clear form after successful save
+      setForm(createInitialForm());
+      setErrors({});
+      
     } catch (err) {
       showToast('error', 'Save failed', err.response?.data?.message || 'Could not save salary details.');
     }
   };
 
   const gen = async () => {
+    // Validate form before generating payslip
     if (!form.employeeId) {
-      return showToast('info', 'Employee ID required', 'Search for an employee before generating.');
+      return showToast('error', 'Employee ID required', 'Please enter a valid Employee ID before generating payslip.');
     }
+    
+    if (!form.month) {
+      return showToast('error', 'Month required', 'Please select a month before generating payslip.');
+    }
+    
+    // Check if form has validation errors
+    if (!validateForm()) {
+      return showToast('error', 'Form validation failed', 'Please fix all validation errors before generating payslip.');
+    }
+    
+    // Check if salary data exists for this employee (basic salary at minimum)
+    if (!form.basic || Number(form.basic) <= 0) {
+      return showToast('error', 'Salary data required', 'Please enter basic salary information before generating payslip.');
+    }
+    
     try {
-      const payload = { employeeId: form.employeeId, month: form.month };
-      const { data } = await generatePayslip(payload);
+      // First, save the salary data
+      showToast('info', 'Processing...', 'Saving salary data and generating payslip...');
+      
+      const payload = buildPayload();
+      await saveSalary(payload);
+      
+      // Then generate the payslip
+      const payslipPayload = { employeeId: form.employeeId, month: form.month };
+      const { data } = await generatePayslip(payslipPayload);
+      
       const absolute = data?.pdfPath
         ? data.pdfPath.startsWith('http')
           ? data.pdfPath
           : `${apiBase}${data.pdfPath}`
         : null;
-      showToast('success', 'Payslip generated', 'A new tab will open with the PDF.');
-      if (absolute) window.open(absolute, '_blank', 'noopener');
+      
+      showToast('success', 'Payslip generated successfully', 'Payslip has been created and saved.');
+      
+      if (absolute) {
+        // Open PDF in new tab
+        window.open(absolute, '_blank', 'noopener');
+      }
+      
+      // Refresh the payslips list
       const slipsRes = await listPayslipsByEmployee(form.employeeId);
       const refreshed = Array.isArray(slipsRes.data) ? slipsRes.data : Array.isArray(slipsRes.data?.slips) ? slipsRes.data.slips : [];
       setSlips(refreshed);
+      
     } catch (err) {
-      showToast('error', 'Generation failed', err.response?.data?.message || 'Could not create payslip.');
+      console.error('Payslip generation error:', err);
+      const errorMessage = err.response?.data?.message || 'Could not create payslip.';
+      
+      if (errorMessage.includes('Employee not found')) {
+        showToast('error', 'Employee not found', 'Please save salary data first, then generate payslip.');
+      } else if (errorMessage.includes('already exists')) {
+        showToast('error', 'Payslip already exists', 'A payslip for this employee and month already exists.');
+      } else {
+        showToast('error', 'Generation failed', errorMessage);
+      }
     }
+  };
+
+  const handleSummaryClick = (month) => {
+    setFilters(prev => ({
+      ...prev,
+      month: prev.month === month ? 'all' : month
+    }));
   };
 
   const monthlyAggregates = useMemo(() => {
@@ -212,6 +554,37 @@ export default function SalaryManagement() {
   const avgNet = filteredSlips.length ? totalNet / filteredSlips.length : 0;
 
   const pdfUrl = (slipNo) => `${apiBase}/files/${slipNo}.pdf`;
+  
+  const handleDownload = async (slipNo, month) => {
+    try {
+      const url = pdfUrl(slipNo);
+      
+      // Try to fetch the file first to check if it exists
+      const response = await fetch(url, { method: 'HEAD' });
+      
+      if (!response.ok) {
+        showToast('error', 'Download failed', 'Payslip file not found on server. Please regenerate the payslip.');
+        return;
+      }
+      
+      // Create a temporary link element for download
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Payslip_${slipNo}_${formatMonthLabel(month).replace(' ', '_')}.pdf`;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      
+      // Append to body, click, and remove
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      showToast('success', 'Download started', `Payslip ${slipNo} download initiated.`);
+    } catch (error) {
+      console.error('Download error:', error);
+      showToast('error', 'Download failed', 'Unable to download payslip. Please check your internet connection and try again.');
+    }
+  };
   const exportPdf = () => {
     if (!filteredSlips.length) {
       showToast('info', 'Nothing to export', 'Adjust filters to include at least one payslip.');
@@ -412,8 +785,9 @@ export default function SalaryManagement() {
               <div className="mt-1 flex gap-2">
                 <input
                   value={searchId}
-                  onChange={(e) => setSearchId(e.target.value)}
+                  onChange={handleSearchIdChange}
                   placeholder="Employee ID e.g. EM001"
+                  maxLength={5}
                   className="flex-1 rounded-full border border-slate-200 px-4 py-2 text-sm focus:border-emerald-500 focus:outline-none"
                 />
                 <button
@@ -422,7 +796,7 @@ export default function SalaryManagement() {
                   className="rounded-full bg-emerald-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-emerald-500"
                   disabled={loading}
                 >
-                  {loading ? 'Searching…' : 'Search'}
+                  {loading ? 'Searchingï¿½' : 'Search'}
                 </button>
               </div>
             </div>
@@ -469,6 +843,23 @@ export default function SalaryManagement() {
             <div className="lg:col-span-2">
               <h2 className="mb-3 text-lg font-semibold text-slate-900">Salary Form (Admin)</h2>
               <div className="rounded-3xl border border-slate-200 bg-slate-50/60 p-6">
+                {/* Display total earnings error if exists */}
+                {errors.totalEarnings && (
+                  <div className="mb-4 rounded-xl bg-red-50 border border-red-200 p-3">
+                    <div className="flex items-start">
+                      <div className="flex-shrink-0">
+                        <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                      <div className="ml-3">
+                        <h3 className="text-sm font-medium text-red-800">Calculation Error</h3>
+                        <p className="mt-1 text-sm text-red-700">{errors.totalEarnings}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
                 <div className="grid gap-4 md:grid-cols-2">
                   {['employeeId', ...numericFields].map((k) => (
                     <div key={k}>
@@ -476,11 +867,18 @@ export default function SalaryManagement() {
                       <input
                         name={k}
                         value={form[k] ?? ''}
-                        placeholder={numericFields.includes(k) ? '0' : ''}
+                        placeholder={numericFields.includes(k) ? '0' : (k === 'employeeId' ? 'EM001' : '')}
                         inputMode={numericFields.includes(k) ? 'numeric' : 'text'}
                         onChange={change}
-                        className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                        className={`mt-1 w-full rounded-2xl border px-4 py-2 text-sm focus:outline-none ${
+                          errors[k] 
+                            ? 'border-red-300 bg-red-50 focus:border-red-500' 
+                            : 'border-slate-200 bg-white focus:border-emerald-500'
+                        }`}
                       />
+                      {errors[k] && (
+                        <p className="mt-1 text-xs text-red-600">{errors[k]}</p>
+                      )}
                     </div>
                   ))}
                   <div>
@@ -489,9 +887,17 @@ export default function SalaryManagement() {
                       type="month"
                       name="month"
                       value={form.month}
+                      min={new Date().toISOString().substring(0, 7)} // Prevent past months
                       onChange={change}
-                      className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                      className={`mt-1 w-full rounded-2xl border px-4 py-2 text-sm focus:outline-none ${
+                        errors.month 
+                          ? 'border-red-300 bg-red-50 focus:border-red-500' 
+                          : 'border-slate-200 bg-white focus:border-emerald-500'
+                      }`}
                     />
+                    {errors.month && (
+                      <p className="mt-1 text-xs text-red-600">{errors.month}</p>
+                    )}
                   </div>
                 </div>
                 <div className="mt-5 flex flex-wrap gap-3">
@@ -529,15 +935,13 @@ export default function SalaryManagement() {
                               >
                                 View
                               </button>
-                              <a
-                                href={absolutePath}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                              <button
+                                type="button"
+                                onClick={() => handleDownload(s.slipNo, s.month)}
                                 className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-500"
-                                download
                               >
                                 Download
-                              </a>
+                              </button>
                             </div>
                           </div>
                           <p className="mt-2 text-xs text-slate-600">Net: LKR {Number(s.breakdown?.net || 0).toFixed(2)}</p>

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Swal from 'sweetalert2';
 import { InventoryAPI } from '../../api/inventoryApi';
-import { CATEGORIES, validateProduct } from '../../utils/validation';
+import { CATEGORIES, validateProduct, checkBatchUniqueness } from '../../utils/validation';
 
 const initialState = {
   name: '',
@@ -9,16 +9,18 @@ const initialState = {
   description: '',
   weight: '',
   price: '',
-  stock: 0,
+  stock: '',
   batchNo: '',
   expiryDate: '',
-  minStock: 200,
+  minStock: '',
   image: null,
 };
 
 export default function ProductForm({ selected, onSaved }) {
   const [form, setForm] = useState(initialState);
   const [errors, setErrors] = useState({});
+  const [batchValidating, setBatchValidating] = useState(false);
+  const [batchValidationTimer, setBatchValidationTimer] = useState(null);
 
   useEffect(() => {
     if (selected) {
@@ -28,10 +30,10 @@ export default function ProductForm({ selected, onSaved }) {
         description: selected.description || '',
         weight: selected.weight || '',
         price: selected.price || '',
-        stock: selected.stock || 0,
+        stock: selected.stock || '',
         batchNo: selected.batchNo || '',
         expiryDate: selected.expiryDate ? selected.expiryDate.substring(0, 10) : '',
-        minStock: 200,
+        minStock: selected.minStock || '',
         image: null,
       });
     } else {
@@ -55,14 +57,67 @@ export default function ProductForm({ selected, onSaved }) {
       };
       setForm(updated);
       setErrors(validateProduct(updated));
+      
+      // Special handling for batch number uniqueness validation
+      if (name === 'batchNo' && value.trim()) {
+        // Clear previous timer
+        if (batchValidationTimer) {
+          clearTimeout(batchValidationTimer);
+        }
+        
+        // Set loading state
+        setBatchValidating(true);
+        
+        // Debounce batch validation by 500ms
+        const timer = setTimeout(async () => {
+          try {
+            const isUnique = await checkBatchUniqueness(value.trim(), selected?._id);
+            if (!isUnique) {
+              setErrors(prev => ({ ...prev, batchNo: 'Batch number already exists' }));
+            } else {
+              setErrors(prev => {
+                const newErrors = { ...prev };
+                if (newErrors.batchNo === 'Batch number already exists') {
+                  delete newErrors.batchNo;
+                }
+                return newErrors;
+              });
+            }
+          } catch (error) {
+            console.error('Batch validation error:', error);
+          } finally {
+            setBatchValidating(false);
+          }
+        }, 500);
+        
+        setBatchValidationTimer(timer);
+      }
     }
   }
 
-  const isValid = useMemo(() => Object.keys(validateProduct(form)).length === 0, [form]);
+  const isValid = useMemo(() => Object.keys(validateProduct(form)).length === 0 && !batchValidating, [form, batchValidating]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (batchValidationTimer) {
+        clearTimeout(batchValidationTimer);
+      }
+    };
+  }, [batchValidationTimer]);
 
   async function handleSubmit(event) {
     event.preventDefault();
     const newErrors = validateProduct(form);
+    
+    // Additional batch number uniqueness check on submit
+    if (form.batchNo && form.batchNo.trim()) {
+      const isUnique = await checkBatchUniqueness(form.batchNo.trim(), selected?._id);
+      if (!isUnique) {
+        newErrors.batchNo = 'Batch number already exists';
+      }
+    }
+    
     setErrors(newErrors);
     if (Object.keys(newErrors).length) return;
 
@@ -171,6 +226,9 @@ export default function ProductForm({ selected, onSaved }) {
           <label className="text-sm font-medium text-slate-600">Price (LKR)</label>
           <input
             name="price"
+            type="number"
+            step="0.01"
+            min="0.01"
             value={form.price}
             onChange={handleChange}
             className={`w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200 ${errors.price ? 'border-rose-300' : ''}`}
@@ -184,22 +242,31 @@ export default function ProductForm({ selected, onSaved }) {
           <input
             name="stock"
             type="number"
+            min="1"
             value={form.stock}
             onChange={handleChange}
             className={`w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200 ${errors.stock ? 'border-rose-300' : ''}`}
+            placeholder="e.g., 100"
           />
           {errors.stock && <p className="text-xs font-medium text-rose-500">{errors.stock}</p>}
         </div>
 
         <div className="flex flex-col gap-1">
           <label className="text-sm font-medium text-slate-600">Batch No</label>
-          <input
-            name="batchNo"
-            value={form.batchNo}
-            onChange={handleChange}
-            className={`w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200 ${errors.batchNo ? 'border-rose-300' : ''}`}
-            placeholder="e.g., BT-2025-001"
-          />
+          <div className="relative">
+            <input
+              name="batchNo"
+              value={form.batchNo}
+              onChange={handleChange}
+              className={`w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200 ${errors.batchNo ? 'border-rose-300' : ''}`}
+              placeholder="e.g., BT-2025-001"
+            />
+            {batchValidating && (
+              <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-emerald-300 border-t-emerald-600"></div>
+              </div>
+            )}
+          </div>
           {errors.batchNo && <p className="text-xs font-medium text-rose-500">{errors.batchNo}</p>}
         </div>
 
@@ -210,6 +277,7 @@ export default function ProductForm({ selected, onSaved }) {
             type="date"
             value={form.expiryDate}
             onChange={handleChange}
+            min={new Date(new Date().getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]} // Tomorrow's date
             className={`w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200 ${errors.expiryDate ? 'border-rose-300' : ''}`}
           />
           {errors.expiryDate && <p className="text-xs font-medium text-rose-500">{errors.expiryDate}</p>}
@@ -221,9 +289,12 @@ export default function ProductForm({ selected, onSaved }) {
             name="minStock"
             type="number"
             value={form.minStock}
-            disabled
-            className="w-full cursor-not-allowed rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-500"
+            onChange={handleChange}
+            min="1"
+            className={`w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200 ${errors.minStock ? 'border-rose-300' : ''}`}
+            placeholder="e.g., 50"
           />
+          {errors.minStock && <p className="text-xs font-medium text-rose-500">{errors.minStock}</p>}
         </div>
 
         <div className="flex flex-col gap-1">

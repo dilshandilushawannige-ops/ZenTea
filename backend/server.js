@@ -15,6 +15,8 @@ import salaryRoutes from './modules/salary/salaryRoutes.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 import inventoryRouter from './modules/inventory/routes/inventoryRoutes.js';
 import salesRouter from './modules/sales/routes/salesRoute.js';
+import cropRoutes from './modules/cultivation/routes/cropRoutes.js';
+import plotRoutes from './modules/cultivation/routes/plotRoutes.js';
 
 dotenv.config();
 const app = express();
@@ -73,6 +75,8 @@ app.use('/api/payments/supplier', supplierPaymentRoutes);
 app.use('/api/salary', salaryRoutes);
 app.use('/api/inventory', inventoryRouter);
 app.use('/api/sales', salesRouter);
+app.use('/api/crops', cropRoutes);
+app.use('/api/plots', plotRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

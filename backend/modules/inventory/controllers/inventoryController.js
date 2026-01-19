@@ -81,7 +81,7 @@ async function getProducts(req, res, next) {
   try {
     const { search, category, status, sort = 'createdAt:desc' } = req.query;
     const q = {};
-    if (search) q.name = { $regex: search, $options: 'i' };
+    if (search) q.name = { $regex: `^${search}`, $options: 'i' };
     if (category) q.category = category;
 
     let products = await Product.find(q)
@@ -121,7 +121,7 @@ async function getProductsPublic(req, res, next) {
   try {
     const { search, category, status, sort = 'createdAt:desc' } = req.query;
     const q = {};
-    if (search) q.name = { $regex: search, $options: 'i' };
+    if (search) q.name = { $regex: `^${search}`, $options: 'i' };
     if (category) q.category = category;
 
     let products = await Product.find(q)

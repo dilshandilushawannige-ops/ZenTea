@@ -69,13 +69,14 @@ export default function OrdersPage() {
     let list = orders.filter(o => {
       if (statusFilter !== 'All' && o.status !== statusFilter) return false;
       if (!s) return true;
+      // Search only from the beginning (first letter) like employee management
       return (
-        String(o.orderId).toLowerCase().includes(s) ||
-        String(o.product).toLowerCase().includes(s) ||
-        String(o.customer).toLowerCase().includes(s) ||
-        String(o.location).toLowerCase().includes(s) ||
-        String(o.phoneNumber).toLowerCase().includes(s) ||
-        String(o.email).toLowerCase().includes(s)
+        String(o.orderId).toLowerCase().startsWith(s) ||
+        String(o.product).toLowerCase().startsWith(s) ||
+        String(o.customer).toLowerCase().startsWith(s) ||
+        String(o.location).toLowerCase().startsWith(s) ||
+        String(o.phoneNumber).toLowerCase().startsWith(s) ||
+        String(o.email).toLowerCase().startsWith(s)
       );
     });
 
@@ -107,10 +108,10 @@ export default function OrdersPage() {
 
   function exportCSV() {
     const rows = [
-      ['Product', 'Customer', 'Location', 'Phone', 'Email', 'Quantity', 'Total', 'Order Date', 'Delivery Date', 'Status']
+      ['Product', 'Customer', 'Location', 'Phone', 'Quantity', 'Total', 'Order Date', 'Delivery Date', 'Status']
     ];
     filtered.forEach(o => {
-      rows.push([o.product, o.customer, o.location, o.phoneNumber, o.email, o.quantity, o.total, o.date, o.deliveryDate, o.status]);
+      rows.push([o.product, o.customer, o.location, o.phoneNumber, o.quantity, o.total, o.date, o.deliveryDate, o.status]);
     });
 
     const csvContent = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -183,7 +184,7 @@ export default function OrdersPage() {
               <Search className="w-4 h-4 text-gray-500 mr-2" />
               <input
                 className="outline-none text-sm w-64 text-gray-900"
-                placeholder="Search by product, customer or location"
+                placeholder="Search starting with..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
@@ -239,10 +240,8 @@ export default function OrdersPage() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-gray-200">
-                      <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
                       <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Customer Name</th>
                       <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Phone Number</th>
-                      <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
                       <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Address</th>
                       <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
                       <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
@@ -250,24 +249,15 @@ export default function OrdersPage() {
                   </thead>
                   <tbody>
                     {pageItems.length === 0 ? (
-                      <tr><td colSpan={8} className="py-8 text-center text-sm text-gray-500">No orders found.</td></tr>
+                      <tr><td colSpan={6} className="py-8 text-center text-sm text-gray-500">No orders found.</td></tr>
                     ) : pageItems.map((order) => (
                       <tr key={order.orderId} className="border-b border-gray-100 hover:bg-gray-50 transition-all duration-150">
-                        <td className="py-4 px-4">
-                          <div className="flex items-center">
-                            <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center mr-3">📦</div>
-                            <div>
-                              <p className="text-sm text-gray-700">{order.product}</p>
-                            </div>
-                          </div>
-                        </td>
                         <td className="py-4 px-4">
                           <div>
                             <p className="text-sm font-medium text-gray-900">{order.customer}</p>
                           </div>
                         </td>
                         <td className="py-4 px-4"><span className="text-sm text-gray-700">{order.phoneNumber}</span></td>
-                        <td className="py-4 px-4"><span className="text-sm text-gray-700">{order.email}</span></td>
                         <td className="py-4 px-4"><span className="text-sm text-gray-700">{order.location}</span></td>
                         <td className="py-4 px-4"><span className="text-sm text-gray-700">{order.quantity} pcs</span></td>
                         <td className="py-4 px-4">
